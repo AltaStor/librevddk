@@ -1,4 +1,5 @@
 // Copyright 2026 Andrija Panic and the OpenVDDK contributors
+// Copyright 2026 Norvitex OU (AltaStor.com) (modifications)
 // SPDX-License-Identifier: Apache-2.0
 
 // Package lifecycle implements the process-global VixDiskLib_Init /
@@ -12,6 +13,7 @@ package lifecycle
 import (
 	"fmt"
 	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/openvddk/openvddk/internal/buildinfo"
@@ -35,6 +37,7 @@ type State struct {
 	initialized bool
 	opts        Options
 	cfg         *config.Config
+	writesBy    map[Family][]string // per family, the switches that turned writes on (writes.go)
 }
 
 // Global is the single process-wide instance.
@@ -53,7 +56,9 @@ func Supported(major, minor uint32) bool {
 //   - a repeated Init/InitEx while initialized succeeds and replaces the
 //     configuration (PROVISIONAL);
 //   - a configuration file that cannot be read is logged and ignored
-//     (PROVISIONAL).
+//     (PROVISIONAL);
+//   - writes stay off unless a switch outside the program turns them on,
+//     which is logged (writes.go).
 func (s *State) Init(o Options) vix.Code {
 	if !Supported(o.Major, o.Minor) {
 		logx.Warnf("client requested VixDiskLib %d.%d; this library provides 8.0", o.Major, o.Minor)
@@ -96,12 +101,17 @@ func (s *State) Init(o Options) vix.Code {
 	if logErr != nil {
 		logx.Warnf("OpenVDDK.trace.file %q not used: %v", logFile, logErr)
 	}
+	writesBy, problems := writesSwitch(lookupEnv, cfg, o.ConfigFile)
+	for _, p := range problems {
+		logx.Warnf("writes: %s", p)
+	}
 
 	s.mu.Lock()
 	again := s.initialized
 	s.initialized = true
 	s.opts = o
 	s.cfg = cfg
+	s.writesBy = writesBy
 	s.mu.Unlock()
 
 	if again {
@@ -109,6 +119,11 @@ func (s *State) Init(o Options) vix.Code {
 	} else {
 		logx.Infof("%s", buildinfo.String())
 		logx.Infof("initialized for client %d.%d; available transport modes: %s", o.Major, o.Minor, transport.ListModes())
+	}
+	for _, sw := range Switches {
+		if by := writesBy[sw.Family]; len(by) > 0 {
+			logx.Infof("writes over %s enabled by %s: a disk opened without the read-only flag may be written", sw.Label, strings.Join(by, ", "))
+		}
 	}
 	return vix.OK
 }
@@ -119,6 +134,7 @@ func (s *State) Exit() {
 	was := s.initialized
 	s.initialized = false
 	s.cfg = config.Empty()
+	s.writesBy = nil
 	s.mu.Unlock()
 	if was {
 		logx.Exit.Infof("exit")

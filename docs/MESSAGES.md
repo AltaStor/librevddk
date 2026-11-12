@@ -34,15 +34,15 @@ file listed here.
 
 | Where | Level | Text | When |
 |---|---|---|---|
-| internal/lifecycle/lifecycle.go:110 | LOG | `OpenVDDK <version> (<commit>), independent implementation; VixDiskLib 8.0.3 ABI (…)` | first successful Init/InitEx |
-| internal/lifecycle/lifecycle.go:111 | LOG | `initialized for client %d.%d; available transport modes: %s` | same |
-| internal/lifecycle/lifecycle.go:108 | LOG | `re-initialized for client %d.%d` | Init/InitEx while initialized |
-| internal/lifecycle/lifecycle.go:59 | WARN | `client requested VixDiskLib %d.%d; this library provides 8.0` | client version above 8.0 (the call fails) |
-| internal/lifecycle/lifecycle.go:88 | WARN | `configuration file not used: %v` | the configuration file cannot be read |
-| internal/lifecycle/lifecycle.go:91 | WARN | `configuration: %s` | one line per problem in the file (`internal/config/config.go:88`, `:97`, `:101`, `:110`, `:115`: malformed line, unterminated quote, repeated key, unknown project key) |
-| internal/lifecycle/lifecycle.go:84 | WARN | `configuration: %s` | Init/InitEx when `vixDiskLib.transport.LogLevel` (0 to 6) or `vixDiskLib.nfc.LogLevel` (0 to 4) is not a level; every message is then delivered (D-0049) |
-| internal/lifecycle/lifecycle.go:94 | WARN | `configuration: %s has no effect in this library: %s` | Init/InitEx, once for each key VMware documents that is set in the file but not acted on, with the reason (`internal/config/config.go`, `notHonoured`; D-0048) |
-| internal/lifecycle/lifecycle.go:97 | WARN | `OpenVDDK.trace.file %q not used: %v` | the configured log file cannot be opened |
+| internal/lifecycle/lifecycle.go:120 | LOG | `OpenVDDK <version> (<commit>), independent implementation; VixDiskLib 8.0.3 ABI (…)` | first successful Init/InitEx |
+| internal/lifecycle/lifecycle.go:121 | LOG | `initialized for client %d.%d; available transport modes: %s` | same |
+| internal/lifecycle/lifecycle.go:118 | LOG | `re-initialized for client %d.%d` | Init/InitEx while initialized |
+| internal/lifecycle/lifecycle.go:64 | WARN | `client requested VixDiskLib %d.%d; this library provides 8.0` | client version above 8.0 (the call fails) |
+| internal/lifecycle/lifecycle.go:93 | WARN | `configuration file not used: %v` | the configuration file cannot be read |
+| internal/lifecycle/lifecycle.go:96 | WARN | `configuration: %s` | one line per problem in the file (`internal/config/config.go:89`, `:97`, `:101`, `:110`, `:115`: malformed line, unterminated quote, repeated key, unknown project key) |
+| internal/lifecycle/lifecycle.go:89 | WARN | `configuration: %s` | Init/InitEx when `vixDiskLib.transport.LogLevel` (0 to 6) or `vixDiskLib.nfc.LogLevel` (0 to 4) is not a level; every message is then delivered (D-0049) |
+| internal/lifecycle/lifecycle.go:99 | WARN | `configuration: %s has no effect in this library: %s` | Init/InitEx, once for each key VMware documents that is set in the file but not acted on, with the reason (`internal/config/config.go`, `notHonoured`; D-0048) |
+| internal/lifecycle/lifecycle.go:102 | WARN | `OpenVDDK.trace.file %q not used: %v` | the configured log file cannot be opened |
 | internal/core/core.go:1111 | WARN | `OpenVDDK.hotadd.readAheadKB = %q is not 0 or a multiple of 4 up to 65536; using %d` | HotAdd Open with an invalid value |
 | internal/core/core.go:1119 | WARN | `OpenVDDK.hotadd.readAheadDepth = %q is not 1 to 64; using %d` | same |
 | internal/core/nbd.go:129 | WARN | `OpenVDDK.nbd.inFlight = %q is not 1 to 64; using %d` | Open over NBD or NBDSSL with an invalid value (D-0037) |
@@ -176,7 +176,7 @@ file listed here.
 | internal/core/access.go:90 | LOG | `%v` (EndAccess) | re-enabling failed; EndAccess still returns success, as the reference does |
 | cabi/exports.go:330 | WARN | `%v` (PrepareForAccess or EndAccess) | the call failed. On a connection to an ESXi host both calls fail after signing in, with 20 and the reason `the server is an ESXi host, not vCenter: relocation can be disabled and enabled only through vCenter`, as the reference answers them (D-0052, NET-0005) |
 | cabi/exports.go:347 | WARN | `%v` (Cleanup) | Cleanup failed |
-| internal/lifecycle/lifecycle.go:124 | LOG | `exit` (Exit) | Exit after a successful Init |
+| internal/lifecycle/lifecycle.go:140 | LOG | `exit` (Exit) | Exit after a successful Init |
 | cabi/exports.go:483 | WARN | `block was not allocated by this library; not freed` (FreeConnectParams) | a foreign block |
 | cabi/exports.go:153 | WARN | `this call is not supported by this version` (under the call's own name) | CheckRepair, Rename, GetConnectParams and the connection and disk operations this version does not implement |
 

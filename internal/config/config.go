@@ -1,4 +1,5 @@
 // Copyright 2026 Andrija Panic and the OpenVDDK contributors
+// Copyright 2026 Norvitex OU (AltaStor.com) (modifications)
 // SPDX-License-Identifier: Apache-2.0
 
 // Package config parses the VixDiskLib configuration file passed to
@@ -154,6 +155,7 @@ var ownKeys = map[string]bool{
 	"openvix.nbd.readaheadkb":         true,
 	"openvix.nbd.readaheaddepth":      true,
 	"openvix.nbd.sessions":            true,
+	"openvix.nbd.write":               true,
 	"openvix.trace.file":              true,
 }
 
@@ -170,8 +172,8 @@ var notHonoured = map[string]string{
 	"vixdisklib.nfc.accepttimeoutms":      "VMware's library showed no effect of it on a connection lost before Open or during a read (D-0049)",
 	"vixdisklib.nfc.requesttimeoutms":     "VMware's library showed no consistent effect of it on a connection lost before Open or during a read (D-0049)",
 	"vixdisklib.nfcfssrvr.timeoutms":      "its effect was not observed in VMware's library (D-0049)",
-	"vixdisklib.nfc.writetimeoutms":       "the library does not write",
-	"vixdisklib.nfcfssrvrwrite.timeoutms": "the library does not write",
+	"vixdisklib.nfc.writetimeoutms":       "writes wait for the host as long as reads do (vixDiskLib.nfc.ReadTimeoutMs)",
+	"vixdisklib.nfcfssrvrwrite.timeoutms": "the library does not write through the NFC file server",
 	"vixdisklib.transport.san.allowlist":  "the SAN transport is not supported",
 	"vixdisklib.transport.san.denylist":   "the SAN transport is not supported",
 	"vixdisklib.transport.san.whitelist":  "the SAN transport is not supported",
