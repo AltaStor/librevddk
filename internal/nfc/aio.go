@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -30,6 +31,8 @@ type Op struct {
 	off  uint64   // read: byte offset in the disk
 	got  uint32   // read: bytes received
 	seen []uint64 // read: one bit per sector received
+
+	w *writeOp // a request of a write open (write.go); nil for every other request
 
 	// orphaned: the session failed while the receiver was reading this
 	// request's data; the receiver completes it when it has stopped
@@ -60,6 +63,7 @@ type engine struct {
 	once       sync.Once
 	br         *bufio.Reader
 	recvd      chan struct{} // closed when the receiver has ended
+	writing    atomic.Bool   // a disk was opened for writing in this session (write.go)
 }
 
 func (c *Conn) start(inFlight int) {
@@ -152,8 +156,12 @@ func (c *Conn) failure() error {
 	return ErrClosed
 }
 
-// finish completes o and frees its slot.
+// finish completes o and frees its slot. A request of a write open that the host refused with an ERROR frame fails
+// with that refusal, also when the session ends before its reply.
 func (c *Conn) finish(o *Op, err error) {
+	if o.w != nil && o.w.hostErr != nil {
+		err = o.w.hostErr
+	}
 	o.err = err
 	close(o.done)
 	<-c.slots
@@ -220,6 +228,10 @@ func (c *Conn) receive() {
 			return
 		}
 		typ, size, op, err := ParseAIOHeader(h)
+		if err != nil && c.hostEnded(h) {
+			c.fail(ErrHostEnded)
+			return
+		}
 		if err == nil && size > maxPayload {
 			err = fmt.Errorf("%w: reply payload of %d bytes", ErrProtocol, size)
 		}
@@ -244,6 +256,12 @@ func (c *Conn) receive() {
 		if o == nil {
 			c.fail(fmt.Errorf("%w: reply type %d to no request (op %d)", ErrProtocol, typ, op))
 			return
+		}
+		if typ == aioError && o.w != nil {
+			if !c.writeRefused(op, o, p) {
+				return
+			}
+			continue
 		}
 		if typ == aioError {
 			c.complete(op, o, fmt.Errorf("%w: request type %d: error reply %s", ErrRefused, o.typ, hex.EncodeToString(p[:min(len(p), 32)])))
@@ -279,6 +297,14 @@ func (c *Conn) receive() {
 // deliver reads what follows a reply payload and completes the request
 // when it is whole.
 func (c *Conn) deliver(op uint32, o *Op, p []byte) error {
+	if o.w != nil && o.w.ctl {
+		// A write or flush reply carries no data (write.go).
+		if err := ParseWriteReply(p, o.w.dir, o.w.off, o.w.n); err != nil {
+			return err
+		}
+		c.complete(op, o, nil)
+		return nil
+	}
 	switch o.typ {
 	case aioIO:
 		pOff, pLen, err := ParseIOPiece(p, o.off, uint32(len(o.buf)))

@@ -1,4 +1,5 @@
 // Copyright 2026 Andrija Panic and the OpenVDDK contributors
+// Copyright 2026 Norvitex OU (AltaStor.com) (modifications)
 // SPDX-License-Identifier: Apache-2.0
 
 package nfc
@@ -61,6 +62,25 @@ type fakeHost struct {
 	wholeSent    int    // pieces sent whole
 	gotSession   []byte // the AIO open-session payload; a buffer size in it sets the piece size
 	gotSockOpts  []byte // the socket options payload
+
+	// Writes (NET-A001, NET-A002).
+	gotFlags   uint32            // the flags of the last open
+	lockedOpen bool              // refuse a write open as for a running VM: an ERROR frame, then a zero reply
+	set        map[string]string // descriptor keys set (type 10)
+	written    map[uint64]byte   // bytes written, by disk offset
+	pieces     int               // write pieces received
+	flushes    int               // flush requests received
+	writeMode  string            // "", "nospace" (ERROR frames, the reply, then the end of the session), "badreply"
+	flushMode  string            // "", "nospace" (one ERROR frame of kind 14, then the reply)
+}
+
+// hostError is an ERROR frame's payload and text as the host sends them (NET-A002).
+func hostError(kind, status uint32, text string) ([]byte, []byte) {
+	p := make([]byte, 16)
+	binary.LittleEndian.PutUint32(p[0:], kind)
+	binary.LittleEndian.PutUint32(p[4:], status)
+	binary.LittleEndian.PutUint32(p[12:], uint32(len(text)))
+	return p, []byte(text)
 }
 
 // byteAt is the fake disk's content: diskByte, with zero areas when sparse
@@ -323,6 +343,13 @@ func (f *fakeHost) session(c net.Conn) error {
 				return err
 			}
 			f.gotPath = string(path)
+			f.gotFlags = binary.LittleEndian.Uint32(p[20:])
+			if f.lockedOpen && f.gotFlags == openFlagsWrite {
+				ep, et := hostError(13, 0x0040080a, "cannot lock the file")
+				reply(aioError, ep, et)
+				reply(typ, make([]byte, 60), nil)
+				continue
+			}
 			if f.failOpen {
 				reply(aioError, make([]byte, 8), nil)
 				continue
@@ -330,7 +357,7 @@ func (f *fakeHost) session(c net.Conn) error {
 			rp := make([]byte, 60)
 			binary.LittleEndian.PutUint64(rp[8:], 0x71b14d0)
 			binary.LittleEndian.PutUint32(rp[16:], fileTypeDisk)
-			binary.LittleEndian.PutUint32(rp[20:], openFlagsReadOnly)
+			binary.LittleEndian.PutUint32(rp[20:], f.gotFlags)
 			reply(typ, rp, nil)
 		case aioAllocation:
 			for i := range f.gotQuery {
@@ -353,7 +380,89 @@ func (f *fakeHost) session(c net.Conn) error {
 			rp := make([]byte, ddbPayloadSize)
 			binary.LittleEndian.PutUint32(rp[12:], uint32(len(v)))
 			reply(typ, rp, []byte(v))
+		case aioDDBSet:
+			kv := make([]byte, binary.LittleEndian.Uint32(p[8:])+binary.LittleEndian.Uint32(p[12:]))
+			if _, err := io.ReadFull(rd, kv); err != nil {
+				return err
+			}
+			if f.set == nil {
+				f.set = map[string]string{}
+			}
+			kl := binary.LittleEndian.Uint32(p[8:])
+			f.set[string(kv[:kl])] = string(kv[kl:])
+			reply(typ, make([]byte, 16), nil)
 		case aioIO:
+			switch binary.LittleEndian.Uint32(p[8:]) {
+			case ioDirWrite:
+				off, n := binary.LittleEndian.Uint64(p[16:]), binary.LittleEndian.Uint32(p[24:])
+				if f.written == nil {
+					f.written = map[uint64]byte{}
+				}
+				// Every piece: its header (the first one is read above), then its data.
+				for got := uint32(0); got < n; {
+					if got > 0 {
+						ph := make([]byte, aioHeaderSize+ioPayloadSize)
+						if _, err := io.ReadFull(rd, ph); err != nil {
+							return err
+						}
+						if pt, _, pop, _ := ParseAIOHeader(ph); pt != aioIO || pop != op {
+							return errors.New("a write piece with another type or operation")
+						}
+						p = ph[aioHeaderSize:]
+					}
+					po, pl := binary.LittleEndian.Uint32(p[28:]), binary.LittleEndian.Uint32(p[32:])
+					if binary.LittleEndian.Uint64(p[16:]) != off || binary.LittleEndian.Uint32(p[24:]) != n || po != got ||
+						pl == 0 || pl > 64<<10 || binary.LittleEndian.Uint32(p[36:]) != pl {
+						return errors.New("bad write piece header")
+					}
+					data := make([]byte, pl)
+					if _, err := io.ReadFull(rd, data); err != nil {
+						return err
+					}
+					f.pieces++
+					if f.writeMode != "nospace" {
+						for j, b := range data {
+							f.written[off+uint64(po)+uint64(j)] = b
+						}
+					}
+					got += pl
+				}
+				rp := make([]byte, ioPayloadSize)
+				binary.LittleEndian.PutUint64(rp[16:], off)
+				binary.LittleEndian.PutUint32(rp[24:], n)
+				binary.LittleEndian.PutUint32(rp[28:], uint32(off))
+				binary.LittleEndian.PutUint32(rp[32:], n)
+				switch f.writeMode {
+				case "nospace":
+					for range 3 {
+						ep, et := hostError(10, 0x00000d0a, "no space on the file system")
+						reply(aioError, ep, et)
+					}
+					reply(typ, rp, nil)
+					c.Write(classic(msgSessionComplete))
+					return nil
+				case "flood": // error frames without end
+					for range maxErrorFrames + 10 {
+						ep, et := hostError(10, 0x00000400, "failed")
+						reply(aioError, ep, et)
+					}
+					return nil
+				case "badreply":
+					binary.LittleEndian.PutUint64(rp[16:], off+512)
+				}
+				reply(typ, rp, nil)
+				continue
+			case ioDirFlush:
+				f.flushes++
+				rp := make([]byte, ioPayloadSize)
+				binary.LittleEndian.PutUint32(rp[8:], ioDirFlush)
+				if f.flushMode == "nospace" {
+					ep, et := hostError(14, 0x00000d0a, "no space on the file system")
+					reply(aioError, ep, et)
+				}
+				reply(typ, rp, nil)
+				continue
+			}
 			f.reads++
 			off, n := binary.LittleEndian.Uint64(p[16:]), binary.LittleEndian.Uint32(p[24:])
 			askZ := binary.LittleEndian.Uint32(p[12:]) == ioSkipZeros
@@ -375,6 +484,9 @@ func (f *fakeHost) session(c net.Conn) error {
 			case "error":
 				reply(aioError, make([]byte, 8), nil)
 				continue
+			case "end": // the classic end-of-session frame, as the host sends it after a failed write
+				c.Write(classic(msgSessionComplete))
+				return nil
 			case "silent":
 				continue
 			case "overlap": // the first piece again, before the request is whole
