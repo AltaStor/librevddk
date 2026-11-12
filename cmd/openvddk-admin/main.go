@@ -1,4 +1,5 @@
 // Copyright 2026 Andrija Panic and the OpenVDDK contributors
+// Copyright 2026 Norvitex OU (AltaStor.com) (modifications)
 // SPDX-License-Identifier: Apache-2.0
 
 // Command openvddk-admin inspects and repairs the HotAdd state OpenVDDK
@@ -227,7 +228,7 @@ func withVCenter(ctx context.Context, o options, f func(*worker) error) error {
 		cancel()
 	}()
 	w := &worker{sess: s, plat: vsphere.Platform{S: s}, host: hotadd.SystemHost{H: linuxdev.System}, journal: j, jdir: jdir}
-	if w.proxy, err = hotadd.IdentifyProxy(ctx, w.plat, w.host); err != nil {
+	if w.proxy, err = hotadd.IdentifyProxy(ctx, w.plat, w.host, j); err != nil {
 		return fmt.Errorf("identifying this worker VM in vCenter: %w", err)
 	}
 	return f(w)

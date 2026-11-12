@@ -1,4 +1,5 @@
 // Copyright 2026 Andrija Panic and the OpenVDDK contributors
+// Copyright 2026 Norvitex OU (AltaStor.com) (modifications)
 // SPDX-License-Identifier: Apache-2.0
 
 package main
@@ -165,7 +166,7 @@ func TestWriteAttachments(t *testing.T) {
 		{Name: "sdd", HCTL: linuxdev.HCTL{Host: 3, Target: 5}},
 	}}
 	var out bytes.Buffer
-	writeAttachments(&out, p, j, h)
+	writeAttachments(&out, p, j, h, "vc-1")
 	s := out.String()
 	for _, want := range []string{
 		"The worker's own disks: 1.", "/dev/sda (by position)",

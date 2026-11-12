@@ -1,4 +1,5 @@
 // Copyright 2026 Andrija Panic and the OpenVDDK contributors
+// Copyright 2026 Norvitex OU (AltaStor.com) (modifications)
 // SPDX-License-Identifier: Apache-2.0
 
 package core
@@ -110,7 +111,7 @@ func Cleanup(p Params) (cleaned, remaining uint32, err error) {
 	err = withSession(p, logx.Cleanup, func(ctx context.Context, s *vsphere.Session) error {
 		plat := vsphere.Platform{S: s}
 		host := hotadd.SystemHost{H: linuxdev.System}
-		proxy, perr := hotadd.IdentifyProxy(ctx, plat, host)
+		proxy, perr := hotadd.IdentifyProxy(ctx, plat, host, j)
 		if perr != nil {
 			return vix.New(vix.EFail, "Cleanup", perr)
 		}

@@ -1,4 +1,5 @@
 // Copyright 2026 Andrija Panic and the OpenVDDK contributors
+// Copyright 2026 Norvitex OU (AltaStor.com) (modifications)
 // SPDX-License-Identifier: Apache-2.0
 
 package hotadd
@@ -70,9 +71,21 @@ type Record struct {
 	// DeviceHasID records whether the guest device carried LocalWWID; when
 	// it did not, the device is known by LocalDevice and its position only.
 	DeviceHasID bool `json:"device_has_id,omitempty"`
+	// DiskMode is the disk mode the attachment was made in. Records written before it was journaled carry none:
+	// they are read-only independent_nonpersistent attachments.
+	DiskMode string `json:"disk_mode,omitempty"`
 
 	CleanupAttempts int    `json:"cleanup_attempts,omitempty"`
 	LastError       string `json:"last_error,omitempty"`
+}
+
+// AttachMode returns the disk mode the record's attachment was made in.
+// A record without one predates the journaled mode and is a read-only attachment.
+func (r Record) AttachMode() string {
+	if r.DiskMode != "" {
+		return r.DiskMode
+	}
+	return diskModeAttachment
 }
 
 // Journal is a directory of transaction records.

@@ -1,4 +1,5 @@
 // Copyright 2026 Andrija Panic and the OpenVDDK contributors
+// Copyright 2026 Norvitex OU (AltaStor.com) (modifications)
 // SPDX-License-Identifier: Apache-2.0
 
 package vsphere
@@ -23,6 +24,9 @@ import (
 )
 
 const modeNonpersistent = string(types.VirtualDiskModeIndependent_nonpersistent)
+
+// modeWritable is the disk mode of an attachment opened for writing (D-A003).
+const modeWritable = string(types.VirtualDiskModeIndependent_persistent)
 
 // Platform adapts a session to hotadd.Platform.
 type Platform struct{ S *Session }
@@ -263,9 +267,17 @@ func (p Platform) Attach(ctx context.Context, s hotadd.AttachSpec) (int32, error
 	return 0, fmt.Errorf("reconfigure succeeded but the disk is not at controller %d unit %d", s.Controller.Key, s.Unit)
 }
 
-// Detach removes the device only if it is the expected non-persistent
-// attachment of the expected source path.
+// Detach removes the device only if it is the attachment of the expected
+// source path in the expected mode: independent_nonpersistent for a read-only
+// attachment, independent_persistent for one opened for writing (D-A003).
 func (p Platform) Detach(ctx context.Context, s hotadd.DetachSpec) error {
+	want := s.ExpectMode
+	if want == "" {
+		want = modeNonpersistent
+	}
+	if want != modeNonpersistent && want != modeWritable {
+		return fmt.Errorf("refusing to detach device %d on %s: %q is not a disk mode of an attachment", s.DeviceKey, s.ProxyVM, want)
+	}
 	pc := property.DefaultCollector(p.S.c)
 	var v mo.VirtualMachine
 	if err := pc.RetrieveOne(ctx, vmRef(s.ProxyVM), []string{"config.hardware.device"}, &v); err != nil {
@@ -285,9 +297,13 @@ func (p Platform) Detach(ctx context.Context, s hotadd.DetachSpec) error {
 		return fmt.Errorf("device %d on %s is not a disk; refusing to remove it", s.DeviceKey, s.ProxyVM)
 	}
 	det, ok := diskBacking(disk)
-	if !ok || det.Path != s.ExpectPath || diskMode(disk) != modeNonpersistent {
-		return fmt.Errorf("device %d on %s is %q (%s), not the expected non-persistent attachment of %q; refusing to remove it",
-			s.DeviceKey, s.ProxyVM, det.Path, diskMode(disk), s.ExpectPath)
+	if !ok || det.Path != s.ExpectPath || diskMode(disk) != want {
+		kind := "non-persistent"
+		if want == modeWritable {
+			kind = "persistent"
+		}
+		return fmt.Errorf("device %d on %s is %q (%s), not the expected %s attachment of %q; refusing to remove it",
+			s.DeviceKey, s.ProxyVM, det.Path, diskMode(disk), kind, s.ExpectPath)
 	}
 	gone := func() bool {
 		var now mo.VirtualMachine

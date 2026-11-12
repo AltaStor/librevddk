@@ -1,4 +1,5 @@
 // Copyright 2026 Andrija Panic and the OpenVDDK contributors
+// Copyright 2026 Norvitex OU (AltaStor.com) (modifications)
 // SPDX-License-Identifier: Apache-2.0
 
 package main
@@ -451,7 +452,7 @@ func collectVCenter(ctx context.Context, o options, jdir string, w io.Writer) {
 		} else {
 			fmt.Fprintf(w, "Worker VM %s: details unavailable (%v)\n\n", wk.proxy.VM, err)
 		}
-		writeAttachments(w, wk.proxy, wk.journal, wk.host)
+		writeAttachments(w, wk.proxy, wk.journal, wk.host, wk.plat.VCenterUUID())
 		fmt.Fprintln(w, "\nWhat recovery would do now (nothing was changed):")
 		as, errs := hotadd.Assess(ctx, wk.plat, wk.host, hotadd.Options{Journal: wk.journal}, wk.proxy.VM)
 		writeAssessment(w, as, errs)

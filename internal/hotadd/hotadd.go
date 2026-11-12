@@ -1,4 +1,5 @@
 // Copyright 2026 Andrija Panic and the OpenVDDK contributors
+// Copyright 2026 Norvitex OU (AltaStor.com) (modifications)
 // SPDX-License-Identifier: Apache-2.0
 
 package hotadd
@@ -89,12 +90,15 @@ type AttachSpec struct {
 }
 
 // DetachSpec describes one detachment. Platform implementations must remove
-// only a disk whose backing is ExpectPath in independent_nonpersistent mode
-// and must never request a file operation: the backing is the source disk.
+// only a disk whose backing is ExpectPath in mode ExpectMode and must never
+// request a file operation: the backing is the source disk.
 type DetachSpec struct {
 	ProxyVM    string
 	DeviceKey  int32
 	ExpectPath string
+	// ExpectMode is the journaled disk mode: independent_nonpersistent, or independent_persistent for an attachment
+	// opened for writing (D-A003). Any other value is refused.
+	ExpectMode string
 }
 
 // Platform is the vSphere side.
@@ -225,8 +229,37 @@ func (r gatedReader) Close() error {
 	return r.Reader.Close()
 }
 
-// diskModeAttachment is the disk mode of HotAdd attachments.
+// diskModeAttachment is the disk mode of read-only HotAdd attachments.
 const diskModeAttachment = "independent_nonpersistent"
+
+// diskModeWritable is the disk mode of attachments opened for writing (D-A003). Independent, so a snapshot of the
+// proxy never captures the writes; the proxy's own disks may use this mode too, so only the journal tells a writable
+// attachment apart from them (IsAttachment).
+const diskModeWritable = "independent_persistent"
+
+// IsAttachment reports whether disk d of proxy VM vm in vCenter vc is a HotAdd attachment rather than one of the VM's
+// own disks: any independent_nonpersistent disk, which every read-only attachment is, or a disk named by a journal
+// record of that vCenter and VM at the same controller, unit and backing path.
+func IsAttachment(d ProxyDisk, vc, vm string, recs []Record) bool {
+	if d.DiskMode == diskModeAttachment {
+		return true
+	}
+	for _, r := range recs {
+		if r.VCenterUUID == vc && r.ProxyVM == vm && mayHaveAttached(r.State) &&
+			r.ControllerKey == d.ControllerKey && r.Unit == d.Unit && r.SourcePath == d.Path {
+			return true
+		}
+	}
+	return false
+}
+
+// journalRecords returns every record of j, or none without a journal.
+func journalRecords(j *Journal) []Record {
+	if j == nil {
+		return nil
+	}
+	return j.Active()
+}
 
 // Error classes. Unavailable means another transport may be tried;
 // everything else stops the transport list (CONTRACT.md section 18).
@@ -309,7 +342,7 @@ func Open(ctx context.Context, p Platform, h LocalHost, src SourceDisk, o Option
 	}
 
 	o.Timer.Mark("host-safety")
-	proxy, err := IdentifyProxyForAttach(ctx, p, h)
+	proxy, err := IdentifyProxyForAttach(ctx, p, h, o.Journal)
 	if err != nil {
 		return nil, err
 	}
@@ -419,6 +452,7 @@ func Open(ctx context.Context, p Platform, h LocalHost, src SourceDisk, o Option
 		LocalWWID:       wwid,
 		ProxyIdentity:   identity,
 		ProxyConfigured: proxyConfigured,
+		DiskMode:        diskModeAttachment,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("%w: journal: %v", ErrUnavailable, err)
@@ -602,7 +636,7 @@ func (a *Attachment) detach(ctx context.Context) error {
 	release := holdReads(a.opts, "detach")
 	a.closeTimer.Mark("hold-reads")
 	start := time.Now()
-	err := a.p.Detach(ctx, DetachSpec{ProxyVM: e.Rec.ProxyVM, DeviceKey: e.Rec.DeviceKey, ExpectPath: e.Rec.SourcePath})
+	err := a.p.Detach(ctx, DetachSpec{ProxyVM: e.Rec.ProxyVM, DeviceKey: e.Rec.DeviceKey, ExpectPath: e.Rec.SourcePath, ExpectMode: e.Rec.AttachMode()})
 	release()
 	if err != nil {
 		e.Rec.CleanupAttempts++
@@ -785,25 +819,26 @@ func ProxyCandidates(ctx context.Context, p Platform, h LocalHost) (string, []st
 // candidate without any disk of its own (a worker booted from a live ISO,
 // W1) is accepted when every one of its network adapters is present here:
 // vCenter gives clones new MAC addresses.
-// HotAdd attachments (independent_nonpersistent) are not the proxy's own
-// disks: one left behind by a crash after its guest device was released is
-// invisible locally, and recovery still has to find this proxy.
+// HotAdd attachments (IsAttachment, with the records of journal j, which may
+// be nil) are not the proxy's own disks: one left behind by a crash after its
+// guest device was released is invisible locally, and recovery still has to
+// find this proxy.
 //
 // Recovery and Cleanup use this form, so leftovers can still be removed
 // after a clone with the same BIOS UUID has appeared. A new attachment uses
 // IdentifyProxyForAttach.
-func IdentifyProxy(ctx context.Context, p Platform, h LocalHost) (ProxyInfo, error) {
-	return identifyProxy(ctx, p, h, false)
+func IdentifyProxy(ctx context.Context, p Platform, h LocalHost, j *Journal) (ProxyInfo, error) {
+	return identifyProxy(ctx, p, h, journalRecords(j), false)
 }
 
 // IdentifyProxyForAttach is IdentifyProxy for a new attachment: like the
 // reference, it refuses when the BIOS UUID selects more than one VM, even
 // when the guest could tell them apart (HOTADD-0014, D-0018).
-func IdentifyProxyForAttach(ctx context.Context, p Platform, h LocalHost) (ProxyInfo, error) {
-	return identifyProxy(ctx, p, h, true)
+func IdentifyProxyForAttach(ctx context.Context, p Platform, h LocalHost, j *Journal) (ProxyInfo, error) {
+	return identifyProxy(ctx, p, h, journalRecords(j), true)
 }
 
-func identifyProxy(ctx context.Context, p Platform, h LocalHost, unique bool) (ProxyInfo, error) {
+func identifyProxy(ctx context.Context, p Platform, h LocalHost, recs []Record, unique bool) (ProxyInfo, error) {
 	uuid, vms, err := ProxyCandidates(ctx, p, h)
 	if err != nil {
 		return ProxyInfo{}, err
@@ -848,7 +883,7 @@ func identifyProxy(ctx context.Context, p Platform, h LocalHost, unique bool) (P
 		// whether it is identified by disk ID (HOTADD-0049).
 		attachedIDs := map[string]bool{}
 		for _, d := range info.Disks {
-			if d.DiskMode == diskModeAttachment {
+			if IsAttachment(d, p.VCenterUUID(), vm, recs) {
 				if w, err := linuxdev.WWIDForBackingUUID(d.UUID); err == nil {
 					attachedIDs[w] = true
 				}
@@ -862,7 +897,7 @@ func identifyProxy(ctx context.Context, p Platform, h LocalHost, unique bool) (P
 		}
 		own, byID, byPosition := 0, true, true
 		for _, d := range info.Disks {
-			if d.DiskMode == diskModeAttachment {
+			if IsAttachment(d, p.VCenterUUID(), vm, recs) {
 				continue
 			}
 			own++

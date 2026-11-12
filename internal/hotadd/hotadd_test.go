@@ -1,4 +1,5 @@
 // Copyright 2026 Andrija Panic and the OpenVDDK contributors
+// Copyright 2026 Norvitex OU (AltaStor.com) (modifications)
 // SPDX-License-Identifier: Apache-2.0
 
 package hotadd
@@ -6,6 +7,7 @@ package hotadd
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -117,7 +119,7 @@ func (p *fakePlatform) Attach(ctx context.Context, s AttachSpec) (int32, error) 
 	p.mu.Lock()
 	key := p.nextKey
 	p.nextKey++
-	p.disks = append(p.disks, ProxyDisk{Key: key, ControllerKey: s.Controller.Key, Unit: s.Unit, Path: s.Source.Path, UUID: s.Source.UUID, DiskMode: "independent_nonpersistent"})
+	p.disks = append(p.disks, ProxyDisk{Key: key, ControllerKey: s.Controller.Key, Unit: s.Unit, Path: s.Source.Path, UUID: s.Source.UUID, DiskMode: diskModeAttachment})
 	// ESXi chooses the redo log name and records it (HOTADD-0003).
 	p.redoSeq++
 	p.extra[fmt.Sprintf("scsi%d:%d.redo", s.Controller.Bus, s.Unit)] = fmt.Sprintf("/vmfs/volumes/ds-1/proxy/./%s.REDO_esx%03d", path.Base(s.Source.Path), p.redoSeq)
@@ -140,8 +142,13 @@ func (p *fakePlatform) Detach(ctx context.Context, s DetachSpec) error {
 	defer p.mu.Unlock()
 	for i, d := range p.disks {
 		if d.Key == s.DeviceKey {
-			if d.Path != s.ExpectPath {
-				return fmt.Errorf("refusing to detach %s: backing %s", s.ExpectPath, d.Path)
+			want := s.ExpectMode
+			if want == "" {
+				want = diskModeAttachment
+			}
+			// As strict as the vSphere platform: the backing and the journaled mode must both match.
+			if d.Path != s.ExpectPath || d.DiskMode != want {
+				return fmt.Errorf("refusing to detach %s (%s): device is %s (%s)", s.ExpectPath, want, d.Path, d.DiskMode)
 			}
 			p.disks = append(p.disks[:i], p.disks[i+1:]...)
 			p.detaches = append(p.detaches, s)
@@ -600,32 +607,32 @@ func TestProxyIdentity(t *testing.T) {
 	p, h, _ := setup(t)
 	p.vms = []string{"vm-clone", "vm-proxy"}
 	p.otherDisks = map[string][]ProxyDisk{"vm-clone": {{Key: 2000, UUID: "6000C290-0000-0000-0000-000000000001"}}}
-	info, err := IdentifyProxy(context.Background(), p, h)
+	info, err := IdentifyProxy(context.Background(), p, h, nil)
 	if err != nil || info.VM != "vm-proxy" {
 		t.Fatalf("identify = %v, %v", info.VM, err)
 	}
 	// A new attachment refuses a shared BIOS UUID even when the guest
 	// tells the VMs apart (HOTADD-0014); recovery (above) still finds it.
-	if _, err := IdentifyProxyForAttach(context.Background(), p, h); !errors.Is(err, ErrNotUnique) || !errors.Is(err, ErrUnavailable) {
+	if _, err := IdentifyProxyForAttach(context.Background(), p, h, nil); !errors.Is(err, ErrNotUnique) || !errors.Is(err, ErrUnavailable) {
 		t.Fatalf("attach with a shared BIOS UUID: err = %v", err)
 	}
 	p.otherDisks["vm-clone"] = []ProxyDisk{{Key: 2000, UUID: bootUUID}}
-	if _, err := IdentifyProxy(context.Background(), p, h); !errors.Is(err, ErrAmbiguous) {
+	if _, err := IdentifyProxy(context.Background(), p, h, nil); !errors.Is(err, ErrAmbiguous) {
 		t.Fatalf("two matching VMs: err = %v", err)
 	}
 	// A VM whose only matching disks are HotAdd attachments is not this host
 	// (a clone in the same vCenter has adapters of its own).
 	p.otherMACs = map[string][]string{"vm-clone": {"00:50:56:a8:0c:01"}}
 	p.otherDisks["vm-clone"] = []ProxyDisk{{Key: 2000, UUID: bootUUID, DiskMode: "independent_nonpersistent"}}
-	if info, err := IdentifyProxy(context.Background(), p, h); err != nil || info.VM != "vm-proxy" {
+	if info, err := IdentifyProxy(context.Background(), p, h, nil); err != nil || info.VM != "vm-proxy" {
 		t.Fatalf("attachment-only VM: %v, %v", info.VM, err)
 	}
 	p.vms = nil
-	if _, err := IdentifyProxy(context.Background(), p, h); !errors.Is(err, ErrUnavailable) {
+	if _, err := IdentifyProxy(context.Background(), p, h, nil); !errors.Is(err, ErrUnavailable) {
 		t.Fatalf("no VM: err = %v", err)
 	}
 	p.vms = []string{"vm-proxy"}
-	if info, err := IdentifyProxyForAttach(context.Background(), p, h); err != nil || info.VM != "vm-proxy" {
+	if info, err := IdentifyProxyForAttach(context.Background(), p, h, nil); err != nil || info.VM != "vm-proxy" {
 		t.Fatalf("attach with a unique BIOS UUID: %v, %v", info.VM, err)
 	}
 }
@@ -709,11 +716,11 @@ func TestIdentifyDisklessProxy(t *testing.T) {
 	p, h, o := setup(t)
 	p.disks = nil
 	h.disks, h.own = nil, 0
-	info, err := IdentifyProxy(context.Background(), p, h)
+	info, err := IdentifyProxy(context.Background(), p, h, nil)
 	if err != nil || info.VM != "vm-proxy" || info.Identity != IdentityAdapters {
 		t.Fatalf("identify = %+v, %v", info.Identity, err)
 	}
-	if info, err := IdentifyProxyForAttach(context.Background(), p, h); err != nil || info.Identity != IdentityAdapters {
+	if info, err := IdentifyProxyForAttach(context.Background(), p, h, nil); err != nil || info.Identity != IdentityAdapters {
 		t.Fatalf("for attach: %+v, %v", info.Identity, err)
 	}
 	// Another diskless VM with the same BIOS UUID but its own adapters is
@@ -721,22 +728,22 @@ func TestIdentifyDisklessProxy(t *testing.T) {
 	p.vms = []string{"vm-clone", "vm-proxy"}
 	p.otherDisks = map[string][]ProxyDisk{"vm-clone": nil}
 	p.otherMACs = map[string][]string{"vm-clone": {"00:50:56:a8:0c:01"}}
-	if info, err := IdentifyProxy(context.Background(), p, h); err != nil || info.VM != "vm-proxy" {
+	if info, err := IdentifyProxy(context.Background(), p, h, nil); err != nil || info.VM != "vm-proxy" {
 		t.Fatalf("diskless clone: %v, %v", info.VM, err)
 	}
-	if _, err := IdentifyProxyForAttach(context.Background(), p, h); !errors.Is(err, ErrNotUnique) {
+	if _, err := IdentifyProxyForAttach(context.Background(), p, h, nil); !errors.Is(err, ErrNotUnique) {
 		t.Fatalf("shared BIOS UUID accepted for a new attachment: %v", err)
 	}
 	p.vms = []string{"vm-proxy"}
 	// Adapters that are not this host's: not this host.
 	h.macs = []string{"00:50:56:a8:ff:ff"}
-	if _, err := IdentifyProxy(context.Background(), p, h); !errors.Is(err, ErrUnavailable) {
+	if _, err := IdentifyProxy(context.Background(), p, h, nil); !errors.Is(err, ErrUnavailable) {
 		t.Fatalf("wrong adapters accepted: %v", err)
 	}
 	h.macs = nil
 	// No disks and no adapters: nothing to verify, refused.
 	p.macs = nil
-	if _, err := IdentifyProxy(context.Background(), p, h); !errors.Is(err, ErrUnavailable) {
+	if _, err := IdentifyProxy(context.Background(), p, h, nil); !errors.Is(err, ErrUnavailable) {
 		t.Fatalf("VM without disks or adapters accepted: %v", err)
 	}
 	p.macs = []string{"00:50:56:a8:00:01"}
@@ -759,25 +766,25 @@ func TestIdentifyProxyWithoutDiskIDs(t *testing.T) {
 	p, h, _ := setup(t)
 	h.stripIDs()
 	p.diskIDs = false
-	info, err := IdentifyProxy(context.Background(), p, h)
+	info, err := IdentifyProxy(context.Background(), p, h, nil)
 	if err != nil || info.VM != "vm-proxy" || info.Identity != IdentityPosition {
 		t.Fatalf("identify = %+v, %v", info.Identity, err)
 	}
 	// A VM whose adapters are not this host's is not this host.
 	h.macs = []string{"00:50:56:a8:ff:ff"}
-	if _, err := IdentifyProxy(context.Background(), p, h); !errors.Is(err, ErrUnavailable) {
+	if _, err := IdentifyProxy(context.Background(), p, h, nil); !errors.Is(err, ErrUnavailable) {
 		t.Fatalf("wrong adapters accepted: %v", err)
 	}
 	h.macs = nil
 	// A VM whose own disk has another size is not this host either.
 	p.disks[0].CapacityBytes = 1 << 30
-	if _, err := IdentifyProxy(context.Background(), p, h); !errors.Is(err, ErrUnavailable) {
+	if _, err := IdentifyProxy(context.Background(), p, h, nil); !errors.Is(err, ErrUnavailable) {
 		t.Fatalf("wrong disk layout accepted: %v", err)
 	}
 	p.disks[0].CapacityBytes = 1 << 29
 	// Disks with IDs that do not match are never corroborated by position.
 	h.disks[0].WWID = "naa.000000000000000000000000000000ff"
-	if _, err := IdentifyProxy(context.Background(), p, h); !errors.Is(err, ErrUnavailable) {
+	if _, err := IdentifyProxy(context.Background(), p, h, nil); !errors.Is(err, ErrUnavailable) {
 		t.Fatalf("mismatching disk ID accepted by position: %v", err)
 	}
 }
@@ -791,13 +798,13 @@ func TestIdentifyByPositionWithAnAttachmentLeft(t *testing.T) {
 	p.diskIDs = false
 	h.plugAs(0, 1, true)
 	p.disks = append(p.disks, ProxyDisk{Key: 2001, ControllerKey: 1000, Unit: 1, Path: "[ds] src/src.vmdk", UUID: sourceUUID, DiskMode: diskModeAttachment, CapacityBytes: sourceBytes})
-	info, err := IdentifyProxy(context.Background(), p, h)
+	info, err := IdentifyProxy(context.Background(), p, h, nil)
 	if err != nil || info.VM != "vm-proxy" || info.Identity != IdentityPosition {
 		t.Fatalf("identify with a leftover attachment = %+v, %v", info.Identity, err)
 	}
 	// The worker's own disk with an ID that does not match still rules it out.
 	h.disks[0].WWID = "naa.000000000000000000000000000000ff"
-	if _, err := IdentifyProxy(context.Background(), p, h); !errors.Is(err, ErrUnavailable) {
+	if _, err := IdentifyProxy(context.Background(), p, h, nil); !errors.Is(err, ErrUnavailable) {
 		t.Fatalf("mismatching own disk ID accepted: %v", err)
 	}
 }
@@ -1097,5 +1104,143 @@ func TestCloseRefusesRedoFilesOutsideTheWorker(t *testing.T) {
 	}
 	if n := len(journalFiles(t, o.Journal)); n != 1 {
 		t.Fatalf("journal records: %d, want the record kept", n)
+	}
+}
+
+// Records written before the disk mode was journaled carry none: they are read-only, non-persistent attachments.
+func TestRecordWithoutDiskModeIsReadOnly(t *testing.T) {
+	var r Record
+	if err := json.Unmarshal([]byte(`{"version":1,"id":"x","state":"ACTIVE","source_path":"[ds] a/a.vmdk"}`), &r); err != nil {
+		t.Fatal(err)
+	}
+	if r.AttachMode() != "independent_nonpersistent" {
+		t.Fatalf("old record: mode %q", r.AttachMode())
+	}
+	r.DiskMode = diskModeWritable
+	data, _ := json.Marshal(r)
+	var back Record
+	if err := json.Unmarshal(data, &back); err != nil || back.AttachMode() != "independent_persistent" {
+		t.Fatalf("persistent record after a round trip: %+v, %v", back, err)
+	}
+}
+
+func TestIsAttachment(t *testing.T) {
+	rec := Record{VCenterUUID: "vc-1", ProxyVM: "vm-proxy", State: StateActive, ControllerKey: 1000, Unit: 1, SourcePath: sourcePath}
+	writable := ProxyDisk{ControllerKey: 1000, Unit: 1, Path: sourcePath, DiskMode: diskModeWritable}
+	own := ProxyDisk{ControllerKey: 1000, Unit: 0, Path: "[ds] proxy/proxy.vmdk", DiskMode: diskModeWritable}
+	other := rec
+	other.VCenterUUID = "vc-2"
+	early := rec
+	early.State = StateSlotReserved
+	for _, c := range []struct {
+		name string
+		d    ProxyDisk
+		recs []Record
+		want bool
+	}{
+		{"read-only attachment without a record", ProxyDisk{DiskMode: diskModeAttachment}, nil, true},
+		{"writable attachment with its record", writable, []Record{rec}, true},
+		{"writable attachment without a record", writable, nil, false},
+		{"record of another vCenter", writable, []Record{other}, false},
+		{"record that never attached", writable, []Record{early}, false},
+		{"the proxy's own independent disk", own, []Record{rec}, false},
+	} {
+		if got := IsAttachment(c.d, "vc-1", "vm-proxy", c.recs); got != c.want {
+			t.Errorf("%s: IsAttachment = %v, want %v", c.name, got, c.want)
+		}
+	}
+}
+
+// An attachment opened for writing is independent_persistent, a mode the proxy's own disks may use too. Left behind after its
+// guest device was released, it is known as an attachment only by its journal record.
+func TestIdentifyWithPersistentAttachmentLeft(t *testing.T) {
+	p, h, o := setup(t)
+	p.disks = append(p.disks, ProxyDisk{Key: 2001, ControllerKey: 1000, Unit: 1, Path: sourcePath, UUID: sourceUUID, DiskMode: diskModeWritable, CapacityBytes: sourceBytes})
+	if _, err := IdentifyProxy(context.Background(), p, h, o.Journal); !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("without a record the leftover counts as an own disk the guest lacks; identification = %v", err)
+	}
+	e, err := o.Journal.Begin(Record{VCenterUUID: "vc-1", ProxyVM: "vm-proxy", State: StateActive, ControllerKey: 1000, Unit: 1,
+		SourcePath: sourcePath, DiskMode: diskModeWritable})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.Release()
+	info, err := IdentifyProxy(context.Background(), p, h, o.Journal)
+	if err != nil || info.VM != "vm-proxy" || info.Identity != IdentityDiskIDs {
+		t.Fatalf("with its record: %+v, %v", info, err)
+	}
+}
+
+// Recovery detaches in the journaled mode only: a persistent record's disk as independent_persistent, while a record
+// without a mode never removes a disk in another mode than independent_nonpersistent.
+func TestRecoveryDetachesInTheJournaledMode(t *testing.T) {
+	leftover := func(p *fakePlatform) {
+		p.disks = append(p.disks, ProxyDisk{Key: 2001, ControllerKey: 1000, Unit: 1, Path: sourcePath, UUID: sourceUUID, DiskMode: diskModeWritable, CapacityBytes: sourceBytes})
+	}
+	rec := Record{VCenterUUID: "vc-1", ProxyVM: "vm-proxy", State: StateActive, ControllerKey: 1000, Unit: 1, SourcePath: sourcePath}
+
+	t.Run("persistent record", func(t *testing.T) {
+		p, h, o := setup(t)
+		leftover(p)
+		r := rec
+		r.DiskMode = diskModeWritable
+		e, _ := o.Journal.Begin(r)
+		e.Release()
+		c, left, errs := Recover(context.Background(), p, h, o, "vm-proxy")
+		if c != 1 || left != 0 || len(errs) != 0 {
+			t.Fatalf("recover = %d,%d,%v", c, left, errs)
+		}
+		if len(p.detaches) != 1 || p.detaches[0].ExpectMode != "independent_persistent" || len(p.removed) != 0 {
+			t.Fatalf("detaches %+v, files removed %v", p.detaches, p.removed)
+		}
+		if n := len(journalFiles(t, o.Journal)); n != 0 {
+			t.Fatalf("journal records left: %d", n)
+		}
+	})
+	t.Run("record without a mode", func(t *testing.T) {
+		p, h, o := setup(t)
+		leftover(p)
+		e, _ := o.Journal.Begin(rec)
+		e.Release()
+		c, left, errs := Recover(context.Background(), p, h, o, "vm-proxy")
+		if c != 0 || left != 1 || len(errs) != 1 || len(p.detaches) != 0 {
+			t.Fatalf("recover = %d,%d,%v, detaches %+v", c, left, errs, p.detaches)
+		}
+		if n := len(journalFiles(t, o.Journal)); n != 1 {
+			t.Fatalf("the record must be kept for review; records: %d", n)
+		}
+	})
+}
+
+// A read-only attachment is journaled, closed and recovered in independent_nonpersistent, as before the mode was
+// journaled; a record written before then is recovered the same way.
+func TestReadOnlyAttachmentKeepsItsMode(t *testing.T) {
+	p, h, o := setup(t)
+	a, err := Open(context.Background(), p, h, source(), o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r := a.Record(); r.DiskMode != "independent_nonpersistent" || p.disks[len(p.disks)-1].DiskMode != "independent_nonpersistent" {
+		t.Fatalf("journaled mode %q, attached as %q", r.DiskMode, p.disks[len(p.disks)-1].DiskMode)
+	}
+	if err := a.Close(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(p.detaches) != 1 || p.detaches[0].ExpectMode != "independent_nonpersistent" {
+		t.Fatalf("detaches %+v", p.detaches)
+	}
+
+	p, h, o = setup(t)
+	p.disks = append(p.disks, ProxyDisk{Key: 2001, ControllerKey: 1000, Unit: 1, Path: sourcePath, UUID: sourceUUID,
+		DiskMode: diskModeAttachment, CapacityBytes: sourceBytes})
+	e, _ := o.Journal.Begin(Record{VCenterUUID: "vc-1", ProxyVM: "vm-proxy", State: StateActive, ControllerKey: 1000,
+		Unit: 1, SourcePath: sourcePath})
+	e.Release()
+	c, left, errs := Recover(context.Background(), p, h, o, "vm-proxy")
+	if c != 1 || left != 0 || len(errs) != 0 {
+		t.Fatalf("recover = %d,%d,%v", c, left, errs)
+	}
+	if len(p.detaches) != 1 || p.detaches[0].ExpectMode != "independent_nonpersistent" {
+		t.Fatalf("recovery detaches %+v", p.detaches)
 	}
 }

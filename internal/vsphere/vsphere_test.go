@@ -1,4 +1,5 @@
 // Copyright 2026 Andrija Panic and the OpenVDDK contributors
+// Copyright 2026 Norvitex OU (AltaStor.com) (modifications)
 // SPDX-License-Identifier: Apache-2.0
 
 package vsphere
@@ -183,6 +184,21 @@ func TestResolveAttachDetach(t *testing.T) {
 		if len(after.Disks) != len(info.Disks) {
 			t.Fatalf("disk count %d after detach, want %d", len(after.Disks), len(info.Disks))
 		}
+
+		// An attachment is detached only in its journaled mode; a mode that is not an attachment's is refused.
+		key, err = p.Attach(ctx, spec)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, mode := range []string{"independent_persistent", "persistent", "nonpersistent"} {
+			if err := p.Detach(ctx, hotadd.DetachSpec{ProxyVM: info.VM, DeviceKey: key, ExpectPath: path, ExpectMode: mode}); err == nil {
+				t.Fatalf("non-persistent attachment detached with expected mode %q", mode)
+			}
+		}
+		if err := p.Detach(ctx, hotadd.DetachSpec{ProxyVM: info.VM, DeviceKey: key, ExpectPath: path, ExpectMode: "independent_nonpersistent"}); err != nil {
+			t.Fatal(err)
+		}
+		after, _ = p.Proxy(ctx, info.VM)
 
 		// Disk ID settings: absent on a fresh VM, TRUE after EnableDiskIDs.
 		if after.DiskIDs {

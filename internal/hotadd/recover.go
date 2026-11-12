@@ -1,4 +1,5 @@
 // Copyright 2026 Andrija Panic and the OpenVDDK contributors
+// Copyright 2026 Norvitex OU (AltaStor.com) (modifications)
 // SPDX-License-Identifier: Apache-2.0
 
 package hotadd
@@ -219,7 +220,7 @@ func recoverOne(ctx context.Context, p Platform, h LocalHost, o Options, e *Entr
 			return fail(err)
 		}
 		release := holdReads(o, "recovery detach")
-		err := p.Detach(ctx, DetachSpec{ProxyVM: e.Rec.ProxyVM, DeviceKey: pl.Disk.Key, ExpectPath: e.Rec.SourcePath})
+		err := p.Detach(ctx, DetachSpec{ProxyVM: e.Rec.ProxyVM, DeviceKey: pl.Disk.Key, ExpectPath: e.Rec.SourcePath, ExpectMode: e.Rec.AttachMode()})
 		release()
 		if err != nil {
 			return fail(err)

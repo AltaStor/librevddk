@@ -1,4 +1,5 @@
 // Copyright 2026 Andrija Panic and the OpenVDDK contributors
+// Copyright 2026 Norvitex OU (AltaStor.com) (modifications)
 // SPDX-License-Identifier: Apache-2.0
 
 package main
@@ -154,10 +155,12 @@ func plural(n int) string {
 // cmdAttachments lists the worker VM's disks as vCenter sees them, matched
 // to the journal and to the guest's devices.
 func cmdAttachments(ctx context.Context, wk *worker, w io.Writer) error {
-	return writeAttachments(w, wk.proxy, wk.journal, wk.host)
+	return writeAttachments(w, wk.proxy, wk.journal, wk.host, wk.plat.VCenterUUID())
 }
 
-func writeAttachments(w io.Writer, p hotadd.ProxyInfo, j *hotadd.Journal, h hotadd.LocalHost) error {
+// writeAttachments lists the worker's disks; vc is the vCenter's instance UUID, which journal records must carry
+// to count a disk in a mode other than independent_nonpersistent as an attachment (D-A003).
+func writeAttachments(w io.Writer, p hotadd.ProxyInfo, j *hotadd.Journal, h hotadd.LocalHost, vc string) error {
 	ids := "no (attached disks are identified by position)"
 	if p.DiskIDs {
 		ids = "yes"
@@ -175,7 +178,7 @@ func writeAttachments(w io.Writer, p hotadd.ProxyInfo, j *hotadd.Journal, h hota
 	matched := map[string]bool{}
 	var own, attached []hotadd.ProxyDisk
 	for _, d := range p.Disks {
-		if d.DiskMode == "independent_nonpersistent" && !strings.HasPrefix(d.Path, p.DirDS+"/") {
+		if hotadd.IsAttachment(d, vc, p.VM, records) && !strings.HasPrefix(d.Path, p.DirDS+"/") {
 			attached = append(attached, d)
 		} else {
 			own = append(own, d)
