@@ -1,4 +1,5 @@
 // Copyright 2026 Andrija Panic and the OpenVDDK contributors
+// Copyright 2026 Norvitex OU (AltaStor.com) (modifications)
 // SPDX-License-Identifier: Apache-2.0
 
 package nfc
@@ -77,6 +78,31 @@ func (c *Conn) start(inFlight int) {
 // submit sends a request and registers o for its reply. It blocks while
 // the session has as many requests in flight as it allows.
 func (c *Conn) submit(o *Op, typ uint32, payload, extra []byte) error {
+	return c.submitWith(o, typ, func(op uint32) error {
+		_ = c.c.SetWriteDeadline(time.Now().Add(c.timeout))
+		// The frame, then what follows it (a path, a key) in a separate write,
+		// as the reference sends them: one TLS record each under NBDSSL.
+		_, err := c.c.Write(append(aioHeader(typ, len(payload), op), payload...))
+		if err == nil && len(extra) > 0 {
+			_, err = c.c.Write(extra)
+		}
+		return err
+	})
+}
+
+// aioHeader is the 16-byte header of an AIO frame for a payload of size bytes.
+func aioHeader(typ uint32, size int, op uint32) []byte {
+	h := make([]byte, aioHeaderSize, aioHeaderSize+size)
+	binary.LittleEndian.PutUint32(h[0:], aioMagic)
+	binary.LittleEndian.PutUint32(h[4:], typ)
+	binary.LittleEndian.PutUint32(h[8:], uint32(size))
+	binary.LittleEndian.PutUint32(h[12:], op)
+	return h
+}
+
+// submitWith registers o under the next operation number and lets send put
+// the request's frames on the wire, alone on the connection.
+func (c *Conn) submitWith(o *Op, typ uint32, send func(op uint32) error) error {
 	o.typ = typ
 	o.done = make(chan struct{})
 	select {
@@ -101,18 +127,7 @@ func (c *Conn) submit(o *Op, typ uint32, payload, extra []byte) error {
 	_ = c.c.SetReadDeadline(time.Now().Add(c.replyTimeout))
 	c.mu.Unlock()
 
-	h := make([]byte, aioHeaderSize, aioHeaderSize+len(payload))
-	binary.LittleEndian.PutUint32(h[0:], aioMagic)
-	binary.LittleEndian.PutUint32(h[4:], typ)
-	binary.LittleEndian.PutUint32(h[8:], uint32(len(payload)))
-	binary.LittleEndian.PutUint32(h[12:], op)
-	_ = c.c.SetWriteDeadline(time.Now().Add(c.timeout))
-	// The frame, then what follows it (a path, a key) in a separate write,
-	// as the reference sends them: one TLS record each under NBDSSL.
-	_, err := c.c.Write(append(h, payload...))
-	if err == nil && len(extra) > 0 {
-		_, err = c.c.Write(extra)
-	}
+	err := send(op)
 	c.wmu.Unlock()
 	if err != nil {
 		c.fail(fmt.Errorf("nfc: send: %w", err))
