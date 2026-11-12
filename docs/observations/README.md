@@ -77,6 +77,13 @@ it. Performance figures are not published.
 | [HOTADD-0057](HOTADD-0057-worker-killed-during-copy.md) | A migration application's worker killed during a copy with three disks attached |
 | [HOTADD-0058](HOTADD-0058-lvm-check-under-load.md) | The HotAdd LVM check under load, and D-0050 |
 | [HOTADD-A001](HOTADD-A001-reference-writes.md) | VMware's library writing a VM's disk over HotAdd, NBDSSL and NBD (D-A001, HW1 to HW5) |
+| [HOTADD-A002](HOTADD-A002-candidate-writes.md) | OpenVDDK writing a VM's disk over HotAdd (D-A003) |
+| [HOTADD-A003](HOTADD-A003-datastore-fills.md) | A HotAdd write when the target's datastore fills (HW6) |
+| [HOTADD-A004](HOTADD-A004-same-image-both-libraries.md) | The same image written by both libraries (HW8), and the change tracking of written disks |
+| [HOTADD-A005](HOTADD-A005-file-layout-sizes.md) | vCenter's file sizes of a thin disk and a delta (D-A004, FS1) |
+| [HOTADD-A006](HOTADD-A006-kill-points-during-a-write.md) | A kill at every fault point of a HotAdd write, and recovery (HW9) |
+| [HOTADD-A007](HOTADD-A007-lvm-and-md-images.md) | Images with LVM and MD signatures written over HotAdd (HW7) |
+| [HOTADD-A008](HOTADD-A008-free-space-check.md) | The free-space check before a HotAdd write (D-A004, FS3) |
 | [LOG-0001](LOG-0001-external-messages.md) | External messages of the reference and the candidate in the HotAdd workflows |
 | [NBD-0001](NBD-0001-first-reads.md) | First NBD and NBDSSL reads against the reference |
 | [NBD-0002](NBD-0002-async-faults-consumers.md) | Asynchronous reads, network faults and real consumers over NBD and NBDSSL |
