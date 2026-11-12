@@ -1,4 +1,5 @@
 // Copyright 2026 Andrija Panic and the OpenVDDK contributors
+// Copyright 2026 Norvitex OU (AltaStor.com) (modifications)
 // SPDX-License-Identifier: Apache-2.0
 
 // Package logx routes library log messages to the consumer's InitEx
@@ -44,6 +45,8 @@ const (
 	Open                 Fn = "VixDiskLib_Open"
 	Close                Fn = "VixDiskLib_Close"
 	Read                 Fn = "VixDiskLib_Read"
+	Write                Fn = "VixDiskLib_Write"
+	Flush                Fn = "VixDiskLib_Flush"
 	GetInfo              Fn = "VixDiskLib_GetInfo"
 	GetTransportMode     Fn = "VixDiskLib_GetTransportMode"
 	QueryAllocatedBlocks Fn = "VixDiskLib_QueryAllocatedBlocks"

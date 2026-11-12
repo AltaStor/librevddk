@@ -1,4 +1,5 @@
 // Copyright 2026 Andrija Panic and the OpenVDDK contributors
+// Copyright 2026 Norvitex OU (AltaStor.com) (modifications)
 // SPDX-License-Identifier: Apache-2.0
 
 // Package vix defines the Vix error model used at the compatibility
@@ -20,6 +21,7 @@ const (
 	EObjectIsBusy         Code = 5
 	ENotSupported         Code = 6
 	EFileError            Code = 7
+	EDiskFull             Code = 8
 	ECancelled            Code = 10
 	EFileReadOnly         Code = 11
 	EFileAccessError      Code = 13

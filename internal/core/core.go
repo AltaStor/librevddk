@@ -1,4 +1,5 @@
 // Copyright 2026 Andrija Panic and the OpenVDDK contributors
+// Copyright 2026 Norvitex OU (AltaStor.com) (modifications)
 // SPDX-License-Identifier: Apache-2.0
 
 // Package core owns the live connection and disk objects behind public
@@ -169,11 +170,15 @@ func WriteModeMixed(h uint64, async bool) bool {
 }
 
 // readStats counts a disk's reads for the statistics logged at Close and
-// the progress line logged every 10 GiB (CONTRACT.md section 106).
+// the progress line logged every 10 GiB (CONTRACT.md section 106), and its
+// writes when it is open for writing (D-A001).
 type readStats struct {
 	reads, bytes int64
 	nanos        int64 // time spent inside Read
 	nextMark     int64 // bytes at which the next progress line is due
+
+	writes, wbytes int64
+	wnanos         int64 // time spent inside Write
 }
 
 const progressStep = 10 << 30
@@ -566,18 +571,26 @@ func open(ch uint64, path string, flags uint32) (uint64, error) {
 		return 0, codeErr(vix.EInvalidArg, "invalid path or flags %#x", flags)
 	}
 	readOnly := flags&FlagReadOnly != 0
+	var writable []transport.Mode // the listed transports a write may go over (write.go)
 	if !readOnly {
 		if c.readOnly {
 			return 0, codeErr(vix.EInvalidArg, "write access requested on a read-only connection")
 		}
-		return 0, codeErr(vix.ENotSupported, "write access is not supported yet")
+		var err error
+		if writable, err = writeModes(c.modes); err != nil {
+			return 0, err
+		}
 	}
 	if c.vm == "" {
 		return 0, codeErr(vix.EInvalidArg, "the connection has no virtual machine (vmxSpec)")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
-	logx.OpenEx.Infof("Open disk '%s' (read-only, flags %#x) over %v", path, flags, c.modes)
+	if readOnly {
+		logx.OpenEx.Infof("Open disk '%s' (read-only, flags %#x) over %v", path, flags, c.modes)
+	} else {
+		logx.OpenEx.Infof("Open disk '%s' for writing (flags %#x) over %v", path, flags, c.modes)
+	}
 	t := steptime.Start()
 	sess, err := c.session(ctx, logx.OpenEx)
 	if err != nil {
@@ -606,9 +619,18 @@ func open(ch uint64, path string, flags uint32) (uint64, error) {
 	case err != nil:
 		return 0, vix.New(vix.EFail, "Open", err)
 	}
+	if !readOnly {
+		// The same rules for every transport, before any is tried (D-A001).
+		if err := writeScope(det, path); err != nil {
+			return 0, vix.New(vix.EFileAccessError, "Open", err)
+		}
+	}
 
 	var lastErr error
 	for i, m := range c.modes {
+		if !readOnly && !hasMode(writable, m) {
+			continue // a transport writes do not go over
+		}
 		var d *Disk
 		switch m {
 		case transport.HotAdd:
@@ -649,6 +671,10 @@ func open(ch uint64, path string, flags uint32) (uint64, error) {
 		}
 		logTransportFailure(m, err, c.modes[i+1:])
 		lastErr = err
+		if !readOnly {
+			// A write never moves on to another transport, and never from NBDSSL to clear-text NBD (D-A002).
+			return 0, vix.New(nbdOpenCode(err), "Open", err)
+		}
 		if m == transport.NBDSSL && nbdsslToNBD(c.listed, c.modes, err) {
 			logx.OpenEx.Warnf("%s: NBDSSL is not available for this session; the transport list allows NBD, which carries the data without encryption", path)
 			continue
@@ -862,7 +888,11 @@ func Close(h uint64) error {
 			}
 		}
 		logx.Close.Warnf("%s: %v", d.path, err)
-		verr := vix.New(vix.EFail, "Close", err)
+		code := vix.EFail
+		if d.nbd != nil && d.nbd.w != nil {
+			code = nbdWriteCode(err) // the first error of the handle (D-A002)
+		}
+		verr := vix.New(code, "Close", err)
 		d.conn.noteFailure(logx.Close, verr)
 		return verr
 	}
@@ -1010,6 +1040,11 @@ func (d *Disk) logStats(closeTook time.Duration) {
 		logx.Infof("Disk IO Size: %d sectors", bytes/512)
 		logx.Infof("Disk IO Count: %d", reads)
 		logx.Infof("Disk IO Speed: %.2f MB/s", mibPerSec(bytes, time.Duration(nanos)))
+	}
+	if writes := atomic.LoadInt64(&d.stats.writes); writes > 0 {
+		wbytes, wnanos := atomic.LoadInt64(&d.stats.wbytes), atomic.LoadInt64(&d.stats.wnanos)
+		logx.Close.Infof("wrote %s: %d writes, %d bytes, %.0f MiB/s of Write time; %.3f s spent inside Write",
+			d.path, writes, wbytes, mibPerSec(wbytes, time.Duration(wnanos)), time.Duration(wnanos).Seconds())
 	}
 }
 

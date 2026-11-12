@@ -1,4 +1,5 @@
 // Copyright 2026 Andrija Panic and the OpenVDDK contributors
+// Copyright 2026 Norvitex OU (AltaStor.com) (modifications)
 // SPDX-License-Identifier: Apache-2.0
 
 // Command cabi builds libvixDiskLib.so.8.0.3 (go build -buildmode=c-shared).
@@ -438,10 +439,10 @@ const (
 	writeOther = 2 // WriteMetadata, Shrink, Defragment
 )
 
-// ovx_go_write_denied answers a write-path call on a disk handle. Every
-// handle is read-only, so a valid handle gets VIX_E_FILE_READ_ONLY; a write
-// in the other I/O mode than the handle's first write gets
-// VIX_E_ASYNC_MIXEDMODE_UNSUPPORTED, as the reference answers (A15).
+// ovx_go_write_denied answers WriteMetadata, Shrink and Defragment, which
+// change a disk and stay unsupported (D-0027, D-A001): a read-only handle gets
+// VIX_E_FILE_READ_ONLY, as the reference answers (A15), and a handle open for
+// writing VIX_E_NOT_SUPPORTED.
 //
 //export ovx_go_write_denied
 func ovx_go_write_denied(disk C.uintptr_t, kind C.int) C.uint64_t {
@@ -451,7 +452,54 @@ func ovx_go_write_denied(disk C.uintptr_t, kind C.int) C.uint64_t {
 	if kind != writeOther && core.WriteModeMixed(uint64(disk), kind == writeAsync) {
 		return code(vix.EAsyncMixedMode)
 	}
+	if core.IsWritable(uint64(disk)) {
+		return code(vix.ENotSupported)
+	}
 	return code(vix.EFileReadOnly)
+}
+
+// ovx_go_write implements VixDiskLib_Write from consumer memory buf (D-A001).
+// A read-only handle gets VIX_E_FILE_READ_ONLY, as before.
+//
+//export ovx_go_write
+func ovx_go_write(disk C.uintptr_t, start, count C.uint64_t, buf *C.uint8_t) C.uint64_t {
+	if err := core.Write(uint64(disk), uint64(start), uint64(count), unsafe.Pointer(buf), false); err != nil {
+		return result(err)
+	}
+	return code(vix.OK)
+}
+
+// ovx_go_write_async implements VixDiskLib_WriteAsync: an invalid handle and
+// a write in the other I/O mode than the handle's first one fail at once
+// without a callback, as the reference answers (HOTADD-A001); otherwise the
+// write completes on the calling thread, the callback gets its result before
+// this returns, and the answer is VIX_ASYNC. A read-only handle's refusal
+// (11) goes to the callback, as before (A15).
+//
+//export ovx_go_write_async
+func ovx_go_write_async(disk C.uintptr_t, start, count C.uint64_t, buf *C.uint8_t, cb, cbData unsafe.Pointer) C.uint64_t {
+	err := core.Write(uint64(disk), uint64(start), uint64(count), unsafe.Pointer(buf), true)
+	switch vix.ToCode(err) {
+	case vix.EInvalidHandle, vix.EAsyncMixedMode:
+		return result(err)
+	}
+	rc := code(vix.OK)
+	if err != nil {
+		rc = result(err)
+	}
+	C.ovx_c_complete(cb, cbData, rc)
+	return code(vix.Async)
+}
+
+// ovx_go_flush implements VixDiskLib_Flush: durable writes on a disk open for
+// writing, nothing to do on a read-only handle.
+//
+//export ovx_go_flush
+func ovx_go_flush(disk C.uintptr_t) C.uint64_t {
+	if err := core.Flush(uint64(disk)); err != nil {
+		return result(err)
+	}
+	return code(vix.OK)
 }
 
 //export ovx_go_check_repair

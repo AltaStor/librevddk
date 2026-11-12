@@ -1,5 +1,6 @@
 /*
  * Copyright 2026 Andrija Panic and the OpenVDDK contributors
+ * Copyright 2026 Norvitex OU (AltaStor.com) (modifications)
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -108,6 +109,9 @@ static inline void go_runtime(void)
 #define ovx_go_conn_op(...)              OVX_GUARD(ovx_go_conn_op(__VA_ARGS__))
 #define ovx_go_disk_op(...)              OVX_GUARD(ovx_go_disk_op(__VA_ARGS__))
 #define ovx_go_write_denied(...)         OVX_GUARD(ovx_go_write_denied(__VA_ARGS__))
+#define ovx_go_write(...)                OVX_GUARD(ovx_go_write(__VA_ARGS__))
+#define ovx_go_write_async(...)          OVX_GUARD(ovx_go_write_async(__VA_ARGS__))
+#define ovx_go_flush(...)                OVX_GUARD(ovx_go_flush(__VA_ARGS__))
 #define ovx_go_metadata_keys(...)        OVX_GUARD(ovx_go_metadata_keys(__VA_ARGS__))
 #define ovx_go_read_metadata(...)        OVX_GUARD(ovx_go_read_metadata(__VA_ARGS__))
 #define ovx_go_check_repair(...)         OVX_GUARD(ovx_go_check_repair(__VA_ARGS__))
@@ -502,8 +506,8 @@ VixDiskLib_QueryAllocatedBlocks(VixDiskLibHandle diskHandle,
 OVX_API VixError
 VixDiskLib_Flush(VixDiskLibHandle diskHandle)
 {
-   /* Nothing is ever written: a valid read-only handle has nothing to flush. */
-   return ovx_go_disk_op((char *)"Flush", (uintptr_t)diskHandle, 0);
+   /* A disk open for writing is made durable (D-A001); a read-only handle has nothing to flush. */
+   return ovx_go_flush((uintptr_t)diskHandle);
 }
 
 /* ---- entry points not implemented yet -----------------------------------------
@@ -600,7 +604,8 @@ OVX_API VixError
 VixDiskLib_Write(VixDiskLibHandle diskHandle, VixDiskLibSectorType startSector,
                  VixDiskLibSectorType numSectors, const uint8_t *writeBuffer)
 {
-   return ovx_go_write_denied((uintptr_t)diskHandle, 0);
+   /* Writes to a disk open for writing (D-A001); a read-only handle answers 11 (A15). */
+   return ovx_go_write((uintptr_t)diskHandle, startSector, numSectors, (uint8_t *)writeBuffer);
 }
 
 OVX_API VixError
@@ -610,16 +615,11 @@ VixDiskLib_WriteAsync(VixDiskLibHandle diskHandle,
                       const uint8_t *writeBuffer,
                       VixDiskLibCompletionCB callback, void *cbData)
 {
-   VixError rc = ovx_go_write_denied((uintptr_t)diskHandle, 1);
-   if (rc != (VixError)11 /* VIX_E_FILE_READ_ONLY */) {
-      return rc; /* invalid handle or mixed I/O modes: synchronous, as the reference */
-   }
-   /* Over HotAdd the reference reports the refusal through the callback and
-    * returns VIX_ASYNC, as for reads (A15, HOTADD-0004). */
-   if (callback != NULL) {
-      callback(cbData, rc);
-   }
-   return VIX_ASYNC;
+   /* The write completes on the calling thread and the callback gets its result before this returns VIX_ASYNC; a
+    * read-only handle's refusal goes to the callback (A15). An invalid handle and mixed I/O modes fail at once,
+    * without a callback. */
+   return ovx_go_write_async((uintptr_t)diskHandle, startSector, numSectors, (uint8_t *)writeBuffer,
+                             (void *)callback, cbData);
 }
 
 OVX_API VixError

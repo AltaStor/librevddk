@@ -1,4 +1,5 @@
 // Copyright 2026 Andrija Panic and the OpenVDDK contributors
+// Copyright 2026 Norvitex OU (AltaStor.com) (modifications)
 // SPDX-License-Identifier: Apache-2.0
 
 package core
@@ -37,6 +38,7 @@ type nbdDisk struct {
 	reads  *nfc.Spread  // every session
 	ra     *readahead.Reader
 	ended  atomic.Bool // the host-ended-session note has been logged
+	w      *nbdWrite   // set when the disk is open for writing (nbdwrite.go)
 }
 
 // nbdSession is one further NFC session with the disk open in it.
@@ -61,10 +63,16 @@ func (n *nbdDisk) read(p []byte, off int64) error {
 	if n.ra != nil {
 		return n.ra.ReadFull(p, off)
 	}
+	if n.w != nil {
+		return n.w.read(func() error { return n.ReadFull(p, off) })
+	}
 	return n.ReadFull(p, off)
 }
 
 func (n *nbdDisk) close(path string) error {
+	if n.w != nil {
+		return n.w.close(path)
+	}
 	if n.ra != nil {
 		n.ra.Close() // waits for the reads in flight
 	}
@@ -200,12 +208,18 @@ func nbdConfig(cfg *config.Config) nbdSettings {
 // direct connection (D-0052), an NFC session to the host (its
 // vSphere Backup NFC address when one is set), the disk opened by path.
 func openNBD(ctx context.Context, c *Connection, sess *vsphere.Session, det vsphere.DiskDetails, path string, mode transport.Mode, flags uint32, t *steptime.Timer) (*Disk, error) {
+	writable := flags&FlagReadOnly == 0
 	info, err := infoFrom(ctx, sess, det)
 	if err != nil {
 		return nil, err
 	}
 	t.Mark("descriptors")
-	tk, err := sess.NfcTicket(ctx, det.VM)
+	ticket := func() (nfc.Ticket, error) { return sess.NfcTicket(ctx, det.VM) }
+	if writable {
+		// A write open needs the ticket VMware's library asks for to write the disk (NET-A003).
+		ticket = func() (nfc.Ticket, error) { return sess.NfcWriteTicket(ctx, det.VM, det.Key) }
+	}
+	tk, err := ticket()
 	if err != nil {
 		return nil, err
 	}
@@ -230,7 +244,7 @@ func openNBD(ctx context.Context, c *Connection, sess *vsphere.Session, det vsph
 		// the ticket was presented: once more with a new ticket and the full
 		// cipher list, never on to clear-text NBD for this reason.
 		logx.OpenEx.NFC().Warnf("%s: %s refused AES-128-GCM alone for the NFC stream; connecting again with the full cipher list", path, addr)
-		if tk, err = sess.NfcTicket(ctx, det.VM); err == nil {
+		if tk, err = ticket(); err == nil {
 			addr = sess.NfcAddress(ctx, tk, det.VM)
 			opts.AllCiphers = true
 			nc, err = nfc.Dial(ctx, addr, tk, opts)
@@ -253,13 +267,25 @@ func openNBD(ctx context.Context, c *Connection, sess *vsphere.Session, det vsph
 		logx.OpenEx.NFC().Infof("%s: NFC AIO buffers asked of the host: size %d KiB, count %d (0: the host's default)", path, opts.AIOBufSize>>10, opts.AIOBufCount)
 	}
 	t.Mark("session")
-	h, err := nc.OpenDisk(path)
+	openDisk := nc.OpenDisk
+	if writable {
+		openDisk = nc.OpenDiskWritable
+	}
+	h, err := openDisk(path)
 	if err != nil {
 		nc.Close()
 		return nil, fmt.Errorf("open over NFC: %w", err)
 	}
 	t.Mark("open")
 	nd := &nbdDisk{conn: nc, handle: h}
+	if writable {
+		// One session and no read-ahead: reads and writes in other sessions could cross (D-A002).
+		nd.w = &nbdWrite{s: nc, handle: h}
+		if st.sessions > 1 {
+			logx.OpenEx.NFC().Infof("%s: open for writing in one NFC session; OpenVDDK.nbd.sessions = %d applies to reads", path, st.sessions)
+		}
+		st.sessions, st.raOn = 1, false
+	}
 	conns, handles := []*nfc.Conn{nc}, []uint64{h}
 	for i := 1; i < st.sessions; i++ {
 		s, err := openNBDSession(ctx, sess, det.VM, path, opts)
@@ -283,12 +309,18 @@ func openNBD(ctx context.Context, c *Connection, sess *vsphere.Session, det vsph
 		nd.ra = readahead.New(nd, det.CapacityBytes, st.ra)
 	}
 	logx.OpenEx.NFC().Infof("%s: opened over %s through %s (NFC version %d)", path, mode, addr, nc.Version)
+	if writable {
+		logx.OpenEx.NFC().Warnf("%s: open for writing over %s through %s", path, modeLabel(mode), addr)
+		if mode == transport.NBD {
+			logx.OpenEx.NFC().Warnf("%s: NBD carries the data written in clear text: on the network it can be read and changed; NBDSSL encrypts it", path)
+		}
+	}
 	if len(conns) > 1 {
 		logx.OpenEx.NFC().Infof("%s: reads spread over %d NFC sessions", path, len(conns))
 	}
 	return &Disk{conn: c, mode: mode, path: path, nbd: nd, sectors: uint64(det.CapacityBytes / 512), info: info, ds: det.Datastore, dpath: det.Path,
 		vm: det.VM, snapshot: det.Snapshot, devKey: det.Key, top: det.Top,
-		readOnly: true, opened: time.Now(), stats: readStats{nextMark: progressStep}}, nil
+		readOnly: !writable, opened: time.Now(), stats: readStats{nextMark: progressStep}}, nil
 }
 
 // nbdStreamEncrypted reports whether the NFC stream of a disk opened over
