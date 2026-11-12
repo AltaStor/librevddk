@@ -45,8 +45,8 @@ file listed here.
 | internal/lifecycle/lifecycle.go:89 | WARN | `configuration: %s` | Init/InitEx when `vixDiskLib.transport.LogLevel` (0 to 6) or `vixDiskLib.nfc.LogLevel` (0 to 4) is not a level; every message is then delivered (D-0049) |
 | internal/lifecycle/lifecycle.go:99 | WARN | `configuration: %s has no effect in this library: %s` | Init/InitEx, once for each key VMware documents that is set in the file but not acted on, with the reason (`internal/config/config.go`, `notHonoured`; D-0048) |
 | internal/lifecycle/lifecycle.go:102 | WARN | `OpenVDDK.trace.file %q not used: %v` | the configured log file cannot be opened |
-| internal/core/core.go:1159 | WARN | `OpenVDDK.hotadd.readAheadKB = %q is not 0 or a multiple of 4 up to 65536; using %d` | HotAdd Open with an invalid value |
-| internal/core/core.go:1167 | WARN | `OpenVDDK.hotadd.readAheadDepth = %q is not 1 to 64; using %d` | same |
+| internal/core/core.go:1170 | WARN | `OpenVDDK.hotadd.readAheadKB = %q is not 0 or a multiple of 4 up to 65536; using %d` | HotAdd Open with an invalid value |
+| internal/core/core.go:1178 | WARN | `OpenVDDK.hotadd.readAheadDepth = %q is not 1 to 64; using %d` | same |
 | internal/core/nbd.go:137 | WARN | `OpenVDDK.nbd.inFlight = %q is not 1 to 64; using %d` | Open over NBD or NBDSSL with an invalid value (D-0037) |
 | internal/core/nbd.go:144 | WARN | `OpenVDDK.nbd.sessions = %q is not 1 to 16; using %d` | same (D-0045) |
 | internal/core/nbd.go:169 | WARN | `vixDiskLib.nfcAio.Session.BufSizeIn64KB = %q is not 1 to 32; the host's default is used` | Open over NBD or NBDSSL with VMware's documented key out of its range (D-0048) |
@@ -55,7 +55,7 @@ file listed here.
 | internal/core/nbd.go:192 | WARN | `%s = %q is not a positive number of bytes; the default is used` | the same for one of the four `vixDiskLib.nfcAio.SocketOption` keys (D-0049) |
 | internal/core/nbd.go:155 | WARN | `OpenVDDK.nbd.readAheadKB = %q is not valid; using %d` | same |
 | internal/core/nbd.go:162 | WARN | `OpenVDDK.nbd.readAheadDepth = %q is not 1 to 64; using %d` | same |
-| internal/core/core.go:1183 | WARN | `OpenVDDK.hotadd.reconfigureReads = %q is not 0 to 64; using %d` | same (D-0024) |
+| internal/core/core.go:1194 | WARN | `OpenVDDK.hotadd.reconfigureReads = %q is not 0 to 64; using %d` | same (D-0024) |
 
 ### `VixDiskLib_ConnectEx`
 
@@ -115,9 +115,13 @@ file listed here.
 | internal/core/core.go:297 | WARN | `transport %s: %v` | a listed transport failed (a HotAdd attach, an NBD or NBDSSL open) |
 | internal/core/core.go:691 | WARN | `%s: NBDSSL is not available for this session; the transport list allows NBD, which carries the data without encryption` | the host refused TLS for the NFC stream and nbd is listed after nbdssl; Open goes on to NBD (D-0039) |
 | internal/core/core.go:682 | WARN | `%s: HotAdd cannot write this disk here; trying the next listed transport` | an Open for writing whose HotAdd cannot run on this machine (not a VMware VM, a connection to an ESXi host, no proxy) goes on to the next listed transport writes go over (D-A003) |
-| internal/core/core.go:802 | WARN | `descriptor of %s not readable (%v); GetInfo uses what is known` | a descriptor of the chain cannot be downloaded |
-| internal/core/core.go:807 | WARN | `descriptor of %s not parsed (%v); GetInfo uses what is known` | a descriptor cannot be parsed |
-| internal/core/core.go:811 | WARN | `descriptor of %s says %d sectors, vSphere %d; using vSphere` | sizes disagree |
+| internal/core/write.go:139 | LOG | `%s may grow by up to %s on datastore %s, which has %s free` | an Open for writing over HotAdd of a thin disk or a delta, when its datastore can hold what it may still grow by (D-A004) |
+| internal/core/write.go:144 | WARN | `%s; %s. Going on over HotAdd (OpenVDDK.hotadd.write.spaceCheck = "warn")` | the same when it may not fit, or a value cannot be read, and `spaceCheck` is `warn`; with `refuse` the same text is the Open's failure reason (8, or the next listed transport writes go over) |
+| internal/core/write.go:130 | WARN | `%s: the free-space check uses vCenter's cached value of %s` | vCenter refused the refresh of the disk's used space or of the datastore's free space (D-A004) |
+| internal/core/write.go:111 | WARN | `OpenVDDK.hotadd.write.spaceCheck = %q is not refuse, warn or off; using refuse` | an invalid value of the key (D-A004) |
+| internal/core/core.go:813 | WARN | `descriptor of %s not readable (%v); GetInfo uses what is known` | a descriptor of the chain cannot be downloaded |
+| internal/core/core.go:818 | WARN | `descriptor of %s not parsed (%v); GetInfo uses what is known` | a descriptor cannot be parsed |
+| internal/core/core.go:822 | WARN | `descriptor of %s says %d sectors, vSphere %d; using vSphere` | sizes disagree |
 
 ### `VixDiskLib_Open` (the failure line)
 
@@ -129,22 +133,22 @@ file listed here.
 
 | Where | Level | Text | When |
 |---|---|---|---|
-| internal/core/core.go:987 | WARN | `Read %d sectors at %d of %s failed: error %d (%s): %v` | a Read failed: the device returned an I/O error (7, as the reference), the device went away (1, as the reference), the range is outside the disk (catalogue S1, S2; HOTADD-0023) |
-| internal/core/core.go:984 | WARN | `Read %d sectors at %d of %s failed: error %d (%s): %v` | the same over NBD or NBDSSL, as an NFC message (it follows `vixDiskLib.nfc.LogLevel`, D-0049) |
-| internal/core/write.go:161 | WARN | `Write %d sectors at %d of %s failed: error %d (%s): %v%s` | a Write failed on a disk open for writing over HotAdd (D-A003): 7 for an I/O error, 8 for ENOSPC, with the note that the datastore is full or the device was removed from the worker |
-| internal/core/write.go:200 | WARN | `Flush of %s failed: error %d (%s): %v; the data written may not be on the datastore` | a Flush failed on a disk open for writing over HotAdd; a buffered write that failed on the device shows here (7) |
+| internal/core/core.go:998 | WARN | `Read %d sectors at %d of %s failed: error %d (%s): %v` | a Read failed: the device returned an I/O error (7, as the reference), the device went away (1, as the reference), the range is outside the disk (catalogue S1, S2; HOTADD-0023) |
+| internal/core/core.go:995 | WARN | `Read %d sectors at %d of %s failed: error %d (%s): %v` | the same over NBD or NBDSSL, as an NFC message (it follows `vixDiskLib.nfc.LogLevel`, D-0049) |
+| internal/core/write.go:222 | WARN | `Write %d sectors at %d of %s failed: error %d (%s): %v%s` | a Write failed on a disk open for writing over HotAdd (D-A003): 7 for an I/O error, 8 for ENOSPC, with the note that the datastore is full or the device was removed from the worker |
+| internal/core/write.go:261 | WARN | `Flush of %s failed: error %d (%s): %v; the data written may not be on the datastore` | a Flush failed on a disk open for writing over HotAdd; a buffered write that failed on the device shows here (7) |
 | internal/core/nbd.go:408 | WARN | `The ESXi host ended the NFC session for this disk: it accepted no more transfers. …` | once per disk, after the first read (or ReadAsync) the host ended with SessionComplete, which returns 1: the host's NFC memory is the likely cause; the line says what to do (NBD-0033) |
-| internal/core/write.go:171 | WARN | `Write %d sectors at %d of %s failed: error %d (%s): %v` | a Write failed on a disk open for writing over NBDSSL or NBD, as an NFC message (D-A002): 8 when the host ran out of space, 7 for another refusal, 14009 for a lost session and for every write after the host ended the session |
-| internal/core/write.go:209 | WARN | `Flush of %s failed: error %d (%s): %v; the data written since the last successful Flush is undefined` | a Flush failed over NBDSSL or NBD, or follows a failed write or flush, whose error it returns (D-A002) |
+| internal/core/write.go:232 | WARN | `Write %d sectors at %d of %s failed: error %d (%s): %v` | a Write failed on a disk open for writing over NBDSSL or NBD, as an NFC message (D-A002): 8 when the host ran out of space, 7 for another refusal, 14009 for a lost session and for every write after the host ended the session |
+| internal/core/write.go:270 | WARN | `Flush of %s failed: error %d (%s): %v; the data written since the last successful Flush is undefined` | a Flush failed over NBDSSL or NBD, or follows a failed write or flush, whose error it returns (D-A002) |
 | internal/core/async.go:127 | WARN | `ReadAsync %d sectors at %d of %s failed: error %d (%s): %v` | an asynchronous read over NBD or NBDSSL failed (14009 when the NFC connection was lost, as the reference); the callback receives the code |
 | internal/core/nbd.go:94 | LOG | `%s: the NFC session had already ended (%v); nothing to release on the host` | Close over NBD or NBDSSL after a read saw the connection end; Close succeeds |
 | internal/core/nbdwrite.go:146 | WARN | `%s: closing the file after the writes: %v` | Close of a disk open for writing over NBDSSL or NBD, when closing the file or the session fails after the flush (D-A002) |
-| internal/core/core.go:1025 | LOG | `read %d GiB of %s so far: %.0f MiB/s since open; %.0f s of %.0f s spent inside Read` | every 10 GiB read on one handle |
-| internal/core/core.go:1070 | LOG | `%s: %d sectors, adapter %d, %d link(s)` | every GetInfo |
-| internal/core/core.go:1080 | LOG | `%s: %s` (disk, transport) | every GetTransportMode |
-| internal/core/core.go:1117 | LOG | `%s: sectors %d+%d chunk %d: %d block(s), %d sectors in use (the ESXi host's map over NFC)` | every QueryAllocatedBlocks with a non-empty range, answered by the host over NFC as the reference (D-0036, NET-0002) |
-| internal/core/core.go:1127 | LOG | `%s: sectors %d+%d chunk %d: %d block(s), %d sectors in use` | every QueryAllocatedBlocks with a non-empty range, answered from vCenter's allocation map when NFC is not available (D-0035, D-0036) |
-| internal/core/core.go:1131 | LOG | `%s: sectors %d+%d chunk %d: 1 block of %d sectors (%s reports the range as allocated)` (HotAdd, NBDSSL or NBD) | every QueryAllocatedBlocks with a non-empty range when there is no allocation map |
+| internal/core/core.go:1036 | LOG | `read %d GiB of %s so far: %.0f MiB/s since open; %.0f s of %.0f s spent inside Read` | every 10 GiB read on one handle |
+| internal/core/core.go:1081 | LOG | `%s: %d sectors, adapter %d, %d link(s)` | every GetInfo |
+| internal/core/core.go:1091 | LOG | `%s: %s` (disk, transport) | every GetTransportMode |
+| internal/core/core.go:1128 | LOG | `%s: sectors %d+%d chunk %d: %d block(s), %d sectors in use (the ESXi host's map over NFC)` | every QueryAllocatedBlocks with a non-empty range, answered by the host over NFC as the reference (D-0036, NET-0002) |
+| internal/core/core.go:1138 | LOG | `%s: sectors %d+%d chunk %d: %d block(s), %d sectors in use` | every QueryAllocatedBlocks with a non-empty range, answered from vCenter's allocation map when NFC is not available (D-0035, D-0036) |
+| internal/core/core.go:1142 | LOG | `%s: sectors %d+%d chunk %d: 1 block of %d sectors (%s reports the range as allocated)` (HotAdd, NBDSSL or NBD) | every QueryAllocatedBlocks with a non-empty range when there is no allocation map |
 | internal/core/allocation.go:102 | LOG | `%s: the ESXi host's allocation map is not available over NFC (%v); using vCenter's map` | the first QueryAllocatedBlocks on a handle whose NFC query fails (port 902 not reachable, ticket refused for a missing privilege, which the message names, protocol error); the handle then uses vCenter's map (D-0036) |
 | internal/core/allocation.go:146 | LOG | `%s: allocation map from vCenter: %d area(s), %d of %d sectors in use` | the first QueryAllocatedBlocks on a handle, when vCenter answers (D-0035) |
 | internal/core/allocation.go:124 | LOG | `%s: vCenter's allocation map is not available (%v); every range is reported as allocated` | the first QueryAllocatedBlocks on a handle, when vCenter refuses its map for a missing privilege (Allow read-only disk access); the message names it |
@@ -156,7 +160,7 @@ file listed here.
 
 | Where | Level | Text | When |
 |---|---|---|---|
-| internal/core/core.go:884 | LOG | `Close disk '%s'` | Close starts |
+| internal/core/core.go:895 | LOG | `Close disk '%s'` | Close starts |
 | internal/hotadd/write.go:108 | WARN | `HotAdd: %s: %v` (flush before close) | the flush of a disk open for writing failed at Close; the detach goes on and Close returns an error (D-A003) |
 | internal/hotadd/hotadd.go:611 | LOG | `HotAdd: journal: %v` | Close could not journal its start |
 | internal/hotadd/hotadd.go:654 | LOG | `HotAdd: releasing %s in the guest: %v` | removing the guest SCSI device failed |
@@ -167,14 +171,14 @@ file listed here.
 | internal/core/metadata.go:112 | WARN | `%s: metadata not available: %v` | the descriptors or the first sector could not be read on the first metadata call (D-0034); the call fails with 1 |
 | internal/vsphere/proxy.go:352 | LOG | `HotAdd: %s: %.3f s from the call to its completion; in vCenter %.3f s queued and %.3f s running (task %s); %.3f s outside the task` | after every attach or detach reconfigure of the worker (P5, HOTADD-0034); no function name |
 | internal/vsphere/proxy.go:355 | LOG | `HotAdd: %s: %.3f s from the call to its completion; vCenter reported no start and end time (task %s)` | the same, when the task's information lacks its times |
-| internal/core/core.go:895 | WARN | `%s: detach failed, the vCenter session is no longer valid; signing in again to finish it` | the session was removed while the disk was open (A4) |
+| internal/core/core.go:906 | WARN | `%s: detach failed, the vCenter session is no longer valid; signing in again to finish it` | the session was removed while the disk was open (A4) |
 | internal/hotadd/recover.go:198 | LOG | `HotAdd: recovered transaction %s (%s at scsi%d:%d)` | the detach was finished after the new sign-in (A4) |
 | internal/hotadd/write.go:153 | WARN | `HotAdd: %s of VM %s was open for writing when its process ended; the writes may be incomplete and the disk's content is undefined until the copy is run again` | a writable attachment was recovered, by Open's recovery or after a new sign-in at Close (D-A003) |
-| internal/core/core.go:900 | WARN | `%s: finishing the detach after a new sign-in failed: %v` | the new sign-in or the recovery failed (A4) |
-| internal/core/core.go:903 | WARN | `%s: %v` | Close failed; the journal record is kept for recovery |
-| internal/core/core.go:1047 | LOG | `closed %s: %d reads, %d bytes, %.0f MiB/s since open; %.3f s of %.3f s spent inside Read; close took %.3f s` | Close succeeded |
-| internal/core/core.go:1059 | LOG | `wrote %s: %d writes, %d bytes, %.0f MiB/s of Write time; %.3f s spent inside Write` | Close of a disk that was written |
-| internal/core/core.go:1049–853 | LOG | `Disk Open Time: %d milliseconds.`, `Disk Close Time: …`, `Disk IO Time: …`, and with reads `Disk IO Size: %d sectors`, `Disk IO Count: %d`, `Disk IO Speed: %.2f MB/s` (no function name) | after the `closed` line (D-0021) |
+| internal/core/core.go:911 | WARN | `%s: finishing the detach after a new sign-in failed: %v` | the new sign-in or the recovery failed (A4) |
+| internal/core/core.go:914 | WARN | `%s: %v` | Close failed; the journal record is kept for recovery |
+| internal/core/core.go:1058 | LOG | `closed %s: %d reads, %d bytes, %.0f MiB/s since open; %.3f s of %.3f s spent inside Read; close took %.3f s` | Close succeeded |
+| internal/core/core.go:1070 | LOG | `wrote %s: %d writes, %d bytes, %.0f MiB/s of Write time; %.3f s spent inside Write` | Close of a disk that was written |
+| internal/core/core.go:1060–853 | LOG | `Disk Open Time: %d milliseconds.`, `Disk Close Time: …`, `Disk IO Time: …`, and with reads `Disk IO Size: %d sectors`, `Disk IO Count: %d`, `Disk IO Speed: %.2f MB/s` (no function name) | after the `closed` line (D-0021) |
 
 ### `VixDiskLib_Disconnect`
 

@@ -698,6 +698,10 @@ func open(ch uint64, path string, flags uint32) (uint64, error) {
 			break
 		}
 	}
+	if errors.Is(lastErr, errNoRoom) {
+		// The datastore may not hold the write and nothing writable follows HotAdd in the list (D-A004).
+		return 0, vix.New(vix.EDiskFull, "Open", lastErr)
+	}
 	if errors.Is(lastErr, errBrokenChain) ||
 		((errors.Is(lastErr, hotadd.ErrUnavailable) || errors.Is(lastErr, hotadd.ErrUnsupported)) &&
 			!errors.Is(lastErr, hotadd.ErrNotUnique)) ||
@@ -738,6 +742,13 @@ func openHotAdd(ctx context.Context, c *Connection, sess *vsphere.Session, det v
 		return nil, err // before any attach, as the reference refuses it (A10)
 	}
 	t.Mark("descriptors")
+	if flags&FlagReadOnly == 0 {
+		// Before anything is attached: will the datastore hold what the write may add (D-A004)?
+		if err := checkWriteSpace(ctx, sess, det, path, spaceCheckMode(cfg)); err != nil {
+			return nil, err
+		}
+		t.Mark("space")
+	}
 	att, err := hotadd.Open(ctx, vsphere.Platform{S: sess}, hotadd.SystemHost{H: linuxdev.System}, det.SourceDisk, hotadd.Options{
 		Journal:           j,
 		EnforceHostSafety: enforce,

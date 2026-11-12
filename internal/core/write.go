@@ -4,6 +4,7 @@
 package core
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"slices"
@@ -13,6 +14,7 @@ import (
 	"time"
 	"unsafe"
 
+	"github.com/openvddk/openvddk/internal/config"
 	"github.com/openvddk/openvddk/internal/hotadd"
 	"github.com/openvddk/openvddk/internal/lifecycle"
 	"github.com/openvddk/openvddk/internal/logx"
@@ -90,11 +92,70 @@ func writeScope(det vsphere.DiskDetails, path string) error {
 	return nil
 }
 
+// errNoRoom: the datastore of a disk opened for writing over HotAdd may not hold what the write can still add
+// (D-A004). A datastore that fills during a HotAdd write stops the worker VM instead of failing a call
+// (HOTADD-A003).
+var errNoRoom = errors.New("the datastore may not hold the write")
+
+// spaceCheckMode reads OpenVDDK.hotadd.write.spaceCheck: "refuse" (the default), "warn" or "off" (D-A004). Any
+// other value keeps the default and is logged.
+func spaceCheckMode(cfg *config.Config) string {
+	v, ok := cfg.Get("OpenVDDK.hotadd.write.spaceCheck")
+	if !ok {
+		return "refuse"
+	}
+	switch m := strings.ToLower(strings.TrimSpace(v)); m {
+	case "refuse", "warn", "off":
+		return m
+	}
+	logx.OpenEx.Warnf("OpenVDDK.hotadd.write.spaceCheck = %q is not refuse, warn or off; using refuse", v)
+	return "refuse"
+}
+
+// growable reports whether a disk's top file grows on its datastore as it is written: a thin flat disk, or any
+// delta. A thick flat base disk never grows (D-A004 point 1).
+func growable(det vsphere.DiskDetails) bool {
+	return vsphere.IsDelta(det) || det.BackingKind == "flat" && det.Thin
+}
+
+// checkWriteSpace runs D-A004's check before a disk is attached for writing over HotAdd: the room the disk's top
+// file may still need against its datastore's free space, both read after a refresh. Under "refuse" a shortfall,
+// or a value that cannot be read, is errNoRoom; under "warn" it is logged and the open goes on.
+func checkWriteSpace(ctx context.Context, sess *vsphere.Session, det vsphere.DiskDetails, path, mode string) error {
+	if mode == "off" || !growable(det) {
+		return nil
+	}
+	sp, err := sess.WriteSpace(ctx, det)
+	for _, c := range sp.Cached {
+		logx.OpenEx.Warnf("%s: the free-space check uses vCenter's cached value of %s", path, c)
+	}
+	var problem string
+	switch {
+	case err != nil:
+		problem = fmt.Sprintf("%s: the free-space check could not read %v", path, err)
+	case sp.Need > sp.Free:
+		problem = fmt.Sprintf("%s may grow by up to %s on datastore %s, which has %s free", path, mibText(sp.Need), sp.Datastore, mibText(sp.Free))
+	default:
+		logx.OpenEx.Infof("%s may grow by up to %s on datastore %s, which has %s free", path, mibText(sp.Need), sp.Datastore, mibText(sp.Free))
+		return nil
+	}
+	const why = "a datastore that fills during a write over HotAdd stops the worker VM instead of failing a call, while NBDSSL and NBD report it as an error"
+	if mode == "warn" {
+		logx.OpenEx.Warnf("%s; %s. Going on over HotAdd (OpenVDDK.hotadd.write.spaceCheck = \"warn\")", problem, why)
+		return nil
+	}
+	return fmt.Errorf("%w: %s; %s. OpenVDDK.hotadd.write.spaceCheck = \"warn\" goes on over HotAdd", errNoRoom, problem, why)
+}
+
+// mibText formats a byte count in MiB for the log.
+func mibText(n int64) string { return fmt.Sprintf("%.1f MiB", float64(n)/(1<<20)) }
+
 // writeMovesOn reports whether a failed open for writing over m goes on to the next listed transport (D-A003): only a
-// HotAdd that cannot run on this machine (not a VMware VM, a connection to an ESXi host, no proxy), and only when a
-// later listed transport is one writes go over. A write never moves from NBDSSL to NBD, whatever the reason.
+// HotAdd that cannot run on this machine (not a VMware VM, a connection to an ESXi host, no proxy) or whose datastore
+// may not hold the write (D-A004), and only when a later listed transport is one writes go over. A write never moves
+// from NBDSSL to NBD, whatever the reason.
 func writeMovesOn(m transport.Mode, err error, writable, rest []transport.Mode) bool {
-	if m != transport.HotAdd || !(errors.Is(err, hotadd.ErrUnavailable) || errors.Is(err, errNotVMwareVM)) {
+	if m != transport.HotAdd || !(errors.Is(err, hotadd.ErrUnavailable) || errors.Is(err, errNotVMwareVM) || errors.Is(err, errNoRoom)) {
 		return false
 	}
 	for _, r := range rest {

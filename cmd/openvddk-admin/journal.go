@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -36,10 +37,51 @@ func ownerStatus(j *hotadd.Journal, proc, bootID string) (map[string]string, []e
 	}
 	for _, r := range j.Active() {
 		if _, ok := out[r.ID]; !ok {
-			out[r.ID] = fmt.Sprintf("owner alive (process %d)", r.PID)
+			out[r.ID] = fmt.Sprintf("owner alive (process %d)", r.PID) + ownerStuck(proc, r.PID)
 		}
 	}
 	return out, errs
+}
+
+// ownerStuck says when a record's live owner cannot let go of it (D-A004 point 6): a process in uninterruptible
+// sleep, typically an O_DIRECT write to a device whose datastore filled (HOTADD-A003), or with a fatal signal
+// pending. Cleanup leaves such a record alone; a detach of the disk through vCenter, or a power-off of the worker,
+// frees it.
+func ownerStuck(proc string, pid int) string {
+	stat, err := os.ReadFile(fmt.Sprintf("%s/%d/stat", proc, pid))
+	if err != nil {
+		return ""
+	}
+	// The state follows the command name, which is in parentheses and may contain spaces.
+	i := strings.LastIndexByte(string(stat), ')')
+	if i < 0 || i+2 >= len(stat) {
+		return ""
+	}
+	uninterruptible := stat[i+2] == 'D'
+	killed := false
+	if status, err := os.ReadFile(fmt.Sprintf("%s/%d/status", proc, pid)); err == nil {
+		for _, line := range strings.Split(string(status), "\n") {
+			k, v, ok := strings.Cut(line, ":")
+			if !ok || (k != "SigPnd" && k != "ShdPnd") {
+				continue
+			}
+			if mask, err := strconv.ParseUint(strings.TrimSpace(v), 16, 64); err == nil && mask&(1<<(9-1)) != 0 {
+				killed = true // SIGKILL pending
+			}
+		}
+	}
+	var why string
+	switch {
+	case uninterruptible && killed:
+		why = "it is in uninterruptible I/O with SIGKILL pending"
+	case uninterruptible:
+		why = "it is in uninterruptible I/O"
+	case killed:
+		why = "it has SIGKILL pending"
+	default:
+		return ""
+	}
+	return "; " + why + ", and recovery leaves its record alone: detaching the disk from this worker through vCenter, or powering the worker off, frees it"
 }
 
 func pidRunning(proc string, pid int) bool {
@@ -249,7 +291,11 @@ func writeAssessment(w io.Writer, as []hotadd.Assessment, errs []error) {
 		head := fmt.Sprintf("Record %s (%s at scsi%d:%d, state %s)", r.ID, dash(r.SourcePath), r.BusNumber, r.Unit, r.State)
 		switch {
 		case a.Live:
-			fmt.Fprintf(w, "%s: owner alive (process %d); recovery skips it.\n", head, r.PID)
+			why := ownerStuck("/proc", r.PID)
+			if why == "" {
+				why = "; recovery skips it"
+			}
+			fmt.Fprintf(w, "%s: owner alive (process %d)%s.\n", head, r.PID, why)
 			count["skipped, owner alive"]++
 		case a.Err != nil:
 			fmt.Fprintf(w, "%s: cannot decide: %v\n", head, a.Err)

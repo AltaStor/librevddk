@@ -12,6 +12,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -228,5 +229,47 @@ func TestBundleSkipsPlantedLogs(t *testing.T) {
 	tailFile(&w, filepath.Join(good, "openvddk-2.log"), 10, true)
 	if strings.Contains(w.String(), "not for the bundle") {
 		t.Fatal("a link was followed")
+	}
+}
+
+// A live owner stuck in uninterruptible I/O, or with SIGKILL pending, is reported with the way to free its record
+// (D-A004 point 6).
+func TestOwnerStuck(t *testing.T) {
+	proc := t.TempDir()
+	write := func(pid int, state, sigpnd string) {
+		dir := filepath.Join(proc, strconv.Itoa(pid))
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		stat := strconv.Itoa(pid) + " (vix write (x)) " + state + " 1 2 3\n"
+		status := "Name:\tvixwrite\nSigPnd:\t0000000000000000\nShdPnd:\t" + sigpnd + "\n"
+		if err := os.WriteFile(filepath.Join(dir, "stat"), []byte(stat), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "status"), []byte(status), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(10, "S", "0000000000000000")
+	write(11, "D", "0000000000000000")
+	write(12, "D", "0000000000000100")
+	write(13, "R", "0000000000000100")
+	for _, c := range []struct {
+		pid  int
+		want string
+	}{
+		{10, ""},
+		{11, "uninterruptible I/O, and"},
+		{12, "uninterruptible I/O with SIGKILL pending"},
+		{13, "SIGKILL pending"},
+		{14, ""},
+	} {
+		got := ownerStuck(proc, c.pid)
+		if (c.want == "") != (got == "") || !strings.Contains(got, c.want) {
+			t.Errorf("process %d: %q, want %q", c.pid, got, c.want)
+		}
+		if got != "" && !strings.Contains(got, "detaching the disk from this worker through vCenter") {
+			t.Errorf("process %d: %q does not say how to free the record", c.pid, got)
+		}
 	}
 }

@@ -12,6 +12,7 @@ import (
 	"time"
 	"unsafe"
 
+	"github.com/openvddk/openvddk/internal/config"
 	"github.com/openvddk/openvddk/internal/hotadd"
 	"github.com/openvddk/openvddk/internal/lifecycle"
 	"github.com/openvddk/openvddk/internal/nfc"
@@ -104,6 +105,8 @@ func TestWriteMovesOn(t *testing.T) {
 		{"nothing listed after HotAdd", hot, unavailable, []transport.Mode{hot, ssl}, nil, false},
 		{"HotAdd refused the disk", hot, fmt.Errorf("%w: no disk ID", hotadd.ErrUnsupported), []transport.Mode{hot, ssl}, []transport.Mode{ssl}, false},
 		{"NBDSSL refused TLS", ssl, streamTLS, []transport.Mode{ssl, nbd}, []transport.Mode{nbd}, false},
+		{"datastore may not hold the write", hot, fmt.Errorf("%w: short", errNoRoom), []transport.Mode{hot, ssl}, []transport.Mode{ssl}, true},
+		{"datastore short, nothing after HotAdd", hot, fmt.Errorf("%w: short", errNoRoom), []transport.Mode{hot}, nil, false},
 	} {
 		if got := writeMovesOn(c.m, c.err, c.writable, c.rest); got != c.want {
 			t.Errorf("%s: moves on %v, want %v", c.name, got, c.want)
@@ -186,5 +189,50 @@ func TestWriteOnReadOnlyHandle(t *testing.T) {
 	}
 	if err := Flush(h + 1); vix.ToCode(err) != vix.EInvalidHandle {
 		t.Fatalf("Flush on an unknown handle: %v", err)
+	}
+}
+
+// OpenVDDK.hotadd.write.spaceCheck: refuse by default, warn or off; anything else keeps refuse (D-A004).
+func TestSpaceCheckMode(t *testing.T) {
+	for _, c := range []struct{ file, want string }{
+		{"", "refuse"},
+		{"OpenVDDK.hotadd.write.spaceCheck = warn\n", "warn"},
+		{"OpenVDDK.hotadd.write.spaceCheck = \"OFF\"\n", "off"},
+		{"OpenVDDK.hotadd.write.spaceCheck = refuse\n", "refuse"},
+		{"OpenVDDK.hotadd.write.spaceCheck = maybe\n", "refuse"},
+	} {
+		cfg := config.Parse([]byte(c.file))
+		if got := spaceCheckMode(cfg); got != c.want {
+			t.Errorf("%q: mode %s, want %s", c.file, got, c.want)
+		}
+		if len(cfg.Warnings) != 0 {
+			t.Errorf("%q: warnings %v", c.file, cfg.Warnings)
+		}
+	}
+}
+
+// Only a file that grows as it is written is checked: thin flat, sparse and SE sparse (D-A004 point 1).
+func TestGrowable(t *testing.T) {
+	disk := func(kind string, thin bool) vsphere.DiskDetails {
+		var d vsphere.DiskDetails
+		d.BackingKind, d.Thin, d.Links = kind, thin, 1
+		return d
+	}
+	delta := disk("flat", false)
+	delta.Links = 2 // a VMFS 6 delta reported with a flat backing
+	for _, c := range []struct {
+		d    vsphere.DiskDetails
+		want bool
+	}{
+		{disk("flat", true), true},
+		{disk("flat", false), false},
+		{disk("sesparse", false), true},
+		{disk("sparse", false), true},
+		{disk("rdm", false), false},
+		{delta, true},
+	} {
+		if got := growable(c.d); got != c.want {
+			t.Errorf("%s thin=%v: growable %v, want %v", c.d.BackingKind, c.d.Thin, got, c.want)
+		}
 	}
 }
