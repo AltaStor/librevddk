@@ -161,6 +161,7 @@ func Recover(ctx context.Context, p Platform, h LocalHost, o Options, proxyVM st
 		cleaned++
 		if pl.Action != ActionForget {
 			o.logf("HotAdd: recovered transaction %s (%s at scsi%d:%d)", r.ID, r.SourcePath, r.BusNumber, r.Unit)
+			warnWritable(o, r)
 		}
 	}
 	return cleaned, remaining, errs
@@ -195,6 +196,7 @@ func RecoverID(ctx context.Context, p Platform, h LocalHost, o Options, id strin
 	}
 	r := found.Rec
 	o.logf("HotAdd: recovered transaction %s (%s at scsi%d:%d)", r.ID, r.SourcePath, r.BusNumber, r.Unit)
+	warnWritable(o, r)
 	return nil
 }
 

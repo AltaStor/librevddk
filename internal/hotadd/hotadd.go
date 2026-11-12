@@ -139,6 +139,8 @@ type LocalHost interface {
 	Rescan() error
 	Settle()
 	Open(d linuxdev.Disk, wwid string, bytes int64, direct bool) (Reader, error)
+	// OpenWritable opens the attached disk for writing, with the stricter checks of linuxdev.Host.OpenWritable.
+	OpenWritable(d linuxdev.Disk, wwid string, bytes int64, direct bool) (Device, error)
 	Protection(ctx context.Context) linuxdev.Protection
 	BootID() string
 	Mounted() map[[2]uint32]bool
@@ -174,8 +176,10 @@ type Options struct {
 	// devices may have in flight while vCenter reconfigures the proxy (an
 	// attach or a detach); 0 leaves reads alone (D-0024).
 	ReconfigureReads int
-	Logf             func(format string, args ...any)
-	Warnf            func(format string, args ...any) // warnings; Logf when nil
+	// Writable opens the disk for writing (write.go, D-A003).
+	Writable bool
+	Logf     func(format string, args ...any)
+	Warnf    func(format string, args ...any) // warnings; Logf when nil
 }
 
 func (o *Options) warnf(format string, args ...any) {
@@ -291,6 +295,7 @@ type Attachment struct {
 	opts   Options
 	entry  *Entry
 	reader Reader
+	dev    Device            // the same device as reader when the disk is open for writing; nil otherwise
 	ra     *readahead.Reader // over reader; closed before it
 
 	closeTimer *steptime.Timer // set by Close; nil during rollback
@@ -319,6 +324,11 @@ func Open(ctx context.Context, p Platform, h LocalHost, src SourceDisk, o Option
 	if o.DiscoveryTimeout == 0 {
 		o.DiscoveryTimeout = 90 * time.Second
 	}
+	if o.Writable {
+		if err := writeRules(src); err != nil {
+			return nil, err
+		}
+	}
 	switch {
 	case src.Snapshot == "" && !src.PoweredOff:
 		return nil, fmt.Errorf("%w: the virtual machine is not powered off: a snapshot is required", ErrUnsupported)
@@ -338,6 +348,10 @@ func Open(ctx context.Context, p Platform, h LocalHost, src SourceDisk, o Option
 
 	prot := h.Protection(ctx)
 	if !prot.Safe {
+		if o.Writable {
+			// Not relaxed by OpenVDDK.hotadd.hostSafety = warn: a disk being written must not be claimed by LVM.
+			return nil, fmt.Errorf("%w: %s (always enforced for a disk opened for writing)", ErrUnsafe, prot.Reason)
+		}
 		if o.EnforceHostSafety {
 			return nil, fmt.Errorf("%w: %s", ErrUnsafe, prot.Reason)
 		}
@@ -427,11 +441,19 @@ func Open(ctx context.Context, p Platform, h LocalHost, src SourceDisk, o Option
 		}
 	}
 	expectID := proxy.DiskIDs
+	if o.Writable && !expectID {
+		return nil, fmt.Errorf("%w: %s gives attached disks no disk ID (disk.EnableUUID and disk.AllowDupUUID); a disk is written only when identified by its ID",
+			ErrUnavailable, proxy.VM)
+	}
 	o.Timer.Mark("proxy-settings")
 	// ESXi names the non-persistent redo log itself and records its location
 	// under this key. The attach must not set the key: a redo log placed by
 	// the client is not removed by ESXi at detach (HOTADD-0003).
 	redoKey := fmt.Sprintf("scsi%d:%d.redo", ctrl.Bus, unit)
+	mode := diskModeAttachment
+	if o.Writable {
+		redoKey, mode = "", diskModeWritable // a persistent attachment has no redo log
+	}
 
 	entry, err := o.Journal.Begin(Record{
 		State:           StateAttachIntent,
@@ -455,7 +477,8 @@ func Open(ctx context.Context, p Platform, h LocalHost, src SourceDisk, o Option
 		LocalWWID:       wwid,
 		ProxyIdentity:   identity,
 		ProxyConfigured: proxyConfigured,
-		DiskMode:        diskModeAttachment,
+		Writable:        o.Writable,
+		DiskMode:        mode,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("%w: journal: %v", ErrUnavailable, err)
@@ -469,7 +492,7 @@ func Open(ctx context.Context, p Platform, h LocalHost, src SourceDisk, o Option
 	release := holdReads(o, "attach")
 	o.Timer.Mark("hold-reads")
 	start := time.Now()
-	key, err := p.Attach(ctx, AttachSpec{ProxyVM: proxy.VM, Controller: ctrl, Unit: unit, Source: src})
+	key, err := p.Attach(ctx, AttachSpec{ProxyVM: proxy.VM, Controller: ctrl, Unit: unit, Source: src, Writable: o.Writable})
 	release()
 	if err != nil {
 		// The reconfigure may or may not have taken effect: reconcile.
@@ -512,14 +535,19 @@ func Open(ctx context.Context, p Platform, h LocalHost, src SourceDisk, o Option
 	locked = false
 	// The device must still carry the ID it was verified with ("" when it
 	// was verified by position and carries none).
-	r, err := h.Open(disk, disk.WWID, src.CapacityBytes, o.Direct)
+	var r Reader
+	ra := o.ReadAhead
+	if o.Writable {
+		r, ra, err = a.openWritable(disk, src)
+	} else if r, err = h.Open(disk, disk.WWID, src.CapacityBytes, o.Direct); err == nil {
+		r = gatedReader{Reader: r, d: devices.Device()}
+	}
 	if err != nil {
 		return nil, a.rollback(ctx, err)
 	}
 	o.Timer.Mark("device-open")
-	r = gatedReader{Reader: r, d: devices.Device()}
 	a.reader, a.disk = r, disk
-	a.ra = readahead.New(r, src.CapacityBytes, o.ReadAhead)
+	a.ra = readahead.New(r, src.CapacityBytes, ra)
 	if err := entry.Transition(StateActive); err != nil {
 		return nil, a.rollback(ctx, err)
 	}
@@ -528,6 +556,9 @@ func Open(ctx context.Context, p Platform, h LocalHost, src SourceDisk, o Option
 		how = "position (no disk ID)"
 	}
 	o.logf("HotAdd: %s is %s (%s), verified by %s; proxy identified by %s", src.Path, r.Path(), disk.HCTL, how, identity)
+	if o.Writable {
+		o.warnf("HotAdd: %s of %s is open for WRITING on %s (%s)", src.Path, src.VM, proxy.VM, r.Path())
+	}
 	if uuid, own := sharedPV(h, disk); uuid != "" {
 		o.warnf("HotAdd: %s carries LVM physical volume %s, as does this worker's own %s; if the worker restarts while the disk is attached, LVM may take the source disk for its own and the worker may not start (HOTADD-0027). Name the worker's own devices by ID in its LVM devices file, include that file in the initramfs (dracut does not by default) and keep its boot disk first in the boot order (HOTADD-0032)",
 			src.Path, uuid, own)
@@ -566,7 +597,8 @@ func sharedPV(h LocalHost, attached linuxdev.Disk) (uuid, own string) {
 // Close runs the detach half of the transaction: the device is closed and
 // released in the guest, the disk is detached, and the redo log files are
 // removed. A failed step keeps the journal record (released to recovery)
-// and returns the error.
+// and returns the error. A disk open for writing is flushed first and
+// checked after its device is closed (write.go).
 func (a *Attachment) Close(ctx context.Context) error {
 	if a.closed {
 		return nil
@@ -581,16 +613,23 @@ func (a *Attachment) Close(ctx context.Context) error {
 	if a.ra != nil {
 		a.ra.Close() // waits for prefetches before the device goes away
 	}
+	flushErr := a.flushBeforeClose(t)
 	if a.reader != nil {
 		a.reader.Close()
 	}
 	t.Mark("stop-reads")
+	if err := a.keepIfClaimed(); err != nil {
+		return errors.Join(flushErr, err)
+	}
 	if a.disk.Name != "" {
 		a.releaseOwnDevice()
 	}
 	t.Mark("guest-release")
 	err := a.detach(ctx)
 	a.opts.logf("HotAdd: close timing for %s: %s", e.Rec.SourcePath, t)
+	if flushErr != nil {
+		return errors.Join(flushErr, err)
+	}
 	return err
 }
 
@@ -744,7 +783,7 @@ func (a *Attachment) rollback(ctx context.Context, cause error) error {
 	}
 	if a.reader != nil {
 		a.reader.Close()
-		a.reader = nil
+		a.reader, a.dev = nil, nil
 	}
 	e := a.entry
 	e.Rec.LastError = cause.Error()

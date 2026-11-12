@@ -669,10 +669,22 @@ func open(ch uint64, path string, flags uint32) (uint64, error) {
 			}
 			return h, nil
 		}
-		logTransportFailure(m, err, c.modes[i+1:])
+		next := c.modes[i+1:]
+		if !readOnly {
+			next = writableAfter(writable, m) // a write goes on only over transports writes go over
+		}
+		logTransportFailure(m, err, next)
 		lastErr = err
 		if !readOnly {
-			// A write never moves on to another transport, and never from NBDSSL to clear-text NBD (D-A002).
+			// Only a HotAdd that cannot run on this machine moves a write on, to the next listed transport writes
+			// go over; a write never moves from NBDSSL to clear-text NBD (D-A002, D-A003).
+			if writeMovesOn(m, err, writable, c.modes[i+1:]) {
+				logx.OpenEx.Warnf("%s: HotAdd cannot write this disk here; trying the next listed transport", path)
+				continue
+			}
+			if m == transport.HotAdd {
+				break
+			}
 			return 0, vix.New(nbdOpenCode(err), "Open", err)
 		}
 		if m == transport.NBDSSL && nbdsslToNBD(c.listed, c.modes, err) {
@@ -734,6 +746,7 @@ func openHotAdd(ctx context.Context, c *Connection, sess *vsphere.Session, det v
 		Timer:             t,
 		ConfigureProxy:    configureProxy(cfg),
 		ReconfigureReads:  reconfigureReads(cfg),
+		Writable:          flags&FlagReadOnly == 0,
 		Logf:              logx.OpenEx.Infof,
 		Warnf:             logx.OpenEx.Warnf,
 	})
@@ -742,7 +755,7 @@ func openHotAdd(ctx context.Context, c *Connection, sess *vsphere.Session, det v
 	}
 	return &Disk{conn: c, mode: transport.HotAdd, path: path, att: att, sectors: uint64(det.CapacityBytes / 512), info: info, ds: det.Datastore, dpath: det.Path,
 		vm: det.VM, snapshot: det.Snapshot, devKey: det.Key, top: det.Top,
-		readOnly: true, opened: time.Now(), stats: readStats{nextMark: progressStep}}, nil
+		readOnly: !att.Writable(), opened: time.Now(), stats: readStats{nextMark: progressStep}}, nil
 }
 
 // infoFrom builds GetInfo for a HotAdd open from the disk's descriptors

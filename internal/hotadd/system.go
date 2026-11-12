@@ -1,4 +1,5 @@
 // Copyright 2026 Andrija Panic and the OpenVDDK contributors
+// Copyright 2026 Norvitex OU (AltaStor.com) (modifications)
 // SPDX-License-Identifier: Apache-2.0
 
 package hotadd
@@ -35,6 +36,10 @@ func (s SystemHost) Settle() {
 
 func (s SystemHost) Open(d linuxdev.Disk, wwid string, bytes int64, direct bool) (Reader, error) {
 	return s.H.OpenVerified(d, wwid, bytes, direct)
+}
+
+func (s SystemHost) OpenWritable(d linuxdev.Disk, wwid string, bytes int64, direct bool) (Device, error) {
+	return s.H.OpenWritable(d, wwid, bytes, direct)
 }
 
 // lvmMemo is shared by every HotAdd Open of this process: lvmconfig runs

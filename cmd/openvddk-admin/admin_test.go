@@ -142,6 +142,9 @@ func (f fakeLocal) Protection(context.Context) linuxdev.Protection {
 func (f fakeLocal) Open(linuxdev.Disk, string, int64, bool) (hotadd.Reader, error) {
 	return nil, os.ErrNotExist
 }
+func (f fakeLocal) OpenWritable(linuxdev.Disk, string, int64, bool) (hotadd.Device, error) {
+	return nil, os.ErrNotExist
+}
 
 func TestWriteAttachments(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "journal")

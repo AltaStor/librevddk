@@ -84,3 +84,17 @@ func TestOffReason(t *testing.T) {
 		}
 	}
 }
+
+// Each family has its own switch: one turned on leaves the other off.
+func TestWritesSwitchPerFamily(t *testing.T) {
+	by, problems := writesSwitch(env(map[string]string{"OPENVIX_HOTADD_WRITE": "1"}),
+		config.Parse([]byte("OpenVDDK.nbd.write = false\n")), "initex.conf")
+	if len(problems) != 0 || len(by[HotAdd]) != 1 || len(by[NBD]) != 0 {
+		t.Fatalf("switches %v, problems %v", by, problems)
+	}
+	by, _ = writesSwitch(env(nil), config.Parse([]byte("OpenVDDK.hotadd.write = true\nOpenVDDK.nbd.write = true\n")),
+		"initex.conf")
+	if len(by[HotAdd]) != 1 || len(by[NBD]) != 1 {
+		t.Fatalf("switches %v", by)
+	}
+}

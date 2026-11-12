@@ -19,6 +19,8 @@ import (
 type Family string
 
 const (
+	// HotAdd is HotAdd (D-A003).
+	HotAdd Family = "hotadd"
 	// NBD is NBDSSL and NBD (D-A002).
 	NBD Family = "nbd"
 )
@@ -33,6 +35,7 @@ type Switch struct {
 
 // Switches lists every family's switch, in the order they are logged.
 var Switches = []Switch{
+	{Family: HotAdd, Key: "OpenVDDK.hotadd.write", Env: "OPENVIX_HOTADD_WRITE", Label: "HotAdd"},
 	{Family: NBD, Key: "OpenVDDK.nbd.write", Env: "OPENVIX_NBD_WRITE", Label: "NBDSSL and NBD"},
 }
 

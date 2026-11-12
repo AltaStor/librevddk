@@ -151,6 +151,7 @@ var ownKeys = map[string]bool{
 	"openvix.hotadd.readaheaddepth":   true,
 	"openvix.hotadd.configureproxy":   true,
 	"openvix.hotadd.reconfigurereads": true,
+	"openvix.hotadd.write":            true,
 	"openvix.nbd.inflight":            true,
 	"openvix.nbd.readaheadkb":         true,
 	"openvix.nbd.readaheaddepth":      true,

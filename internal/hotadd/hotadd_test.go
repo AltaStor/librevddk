@@ -119,10 +119,16 @@ func (p *fakePlatform) Attach(ctx context.Context, s AttachSpec) (int32, error) 
 	p.mu.Lock()
 	key := p.nextKey
 	p.nextKey++
-	p.disks = append(p.disks, ProxyDisk{Key: key, ControllerKey: s.Controller.Key, Unit: s.Unit, Path: s.Source.Path, UUID: s.Source.UUID, DiskMode: diskModeAttachment})
-	// ESXi chooses the redo log name and records it (HOTADD-0003).
-	p.redoSeq++
-	p.extra[fmt.Sprintf("scsi%d:%d.redo", s.Controller.Bus, s.Unit)] = fmt.Sprintf("/vmfs/volumes/ds-1/proxy/./%s.REDO_esx%03d", path.Base(s.Source.Path), p.redoSeq)
+	mode := diskModeAttachment
+	if s.Writable {
+		mode = diskModeWritable
+	}
+	p.disks = append(p.disks, ProxyDisk{Key: key, ControllerKey: s.Controller.Key, Unit: s.Unit, Path: s.Source.Path, UUID: s.Source.UUID, DiskMode: mode})
+	// ESXi chooses the redo log name and records it (HOTADD-0003); a persistent attachment has none (HOTADD-A001).
+	if !s.Writable {
+		p.redoSeq++
+		p.extra[fmt.Sprintf("scsi%d:%d.redo", s.Controller.Bus, s.Unit)] = fmt.Sprintf("/vmfs/volumes/ds-1/proxy/./%s.REDO_esx%03d", path.Base(s.Source.Path), p.redoSeq)
+	}
 	p.attaches = append(p.attaches, s)
 	withID := p.diskIDs
 	p.mu.Unlock()
@@ -200,6 +206,9 @@ type fakeHost struct {
 	noBusMap bool
 	pvs      map[string]map[string]string // disk name -> PV UUID -> device
 	own      int                          // the guest's own disks, first in disks
+	wdev     *memDevice                   // the device opened for writing, if any
+	syncErr  error                        // returned by its Sync
+	lb       uint32                       // logical block of devices opened for writing; 512 when 0
 }
 
 func newHost() *fakeHost {
@@ -272,6 +281,29 @@ func (h *fakeHost) Open(d linuxdev.Disk, wwid string, n int64, direct bool) (Rea
 	}
 	return &memReader{data: h.data, path: "/dev/" + d.Name}, nil
 }
+func (h *fakeHost) OpenWritable(d linuxdev.Disk, wwid string, n int64, direct bool) (Device, error) {
+	// As strict as linuxdev.OpenWritable: the expected ID, and one at all.
+	if wwid == "" || d.WWID != wwid {
+		return nil, fmt.Errorf("%w: %s has WWID %q, want %q", linuxdev.ErrIdentity, d.Name, d.WWID, wwid)
+	}
+	if h.lb != 0 && h.lb != 512 {
+		return nil, fmt.Errorf("%w: %d-byte blocks", linuxdev.ErrWriteRefused, h.lb)
+	}
+	h.wdev = &memDevice{h: h, path: "/dev/" + d.Name, syncErr: h.syncErr}
+	return h.wdev, nil
+}
+
+// claim gives the attached disk holders, as LVM would after probing data written to it.
+func (h *fakeHost) claim(name string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for i := range h.disks {
+		if h.disks[i].Name == name {
+			h.disks[i].Holders = []string{"dm-0"}
+		}
+	}
+}
+
 func (h *fakeHost) Protection(ctx context.Context) linuxdev.Protection {
 	return linuxdev.Protection{Safe: h.safe, Reason: "test"}
 }
@@ -296,8 +328,35 @@ type memReader struct {
 }
 
 func (m *memReader) ReadFull(p []byte, off int64) error { copy(p, m.data[off:]); return nil }
-func (m *memReader) Close() error                       { return nil }
-func (m *memReader) Path() string                       { return m.path }
+
+// memDevice is the source disk opened for writing: it reads and writes the fake host's data.
+type memDevice struct {
+	h       *fakeHost
+	path    string
+	writes  int
+	syncs   int
+	syncErr error
+	closed  bool
+}
+
+func (m *memDevice) ReadFull(p []byte, off int64) error {
+	m.h.mu.Lock()
+	defer m.h.mu.Unlock()
+	copy(p, m.h.data[off:])
+	return nil
+}
+func (m *memDevice) WriteFull(p []byte, off int64) error {
+	m.h.mu.Lock()
+	defer m.h.mu.Unlock()
+	copy(m.h.data[off:], p)
+	m.writes++
+	return nil
+}
+func (m *memDevice) Sync() error  { m.syncs++; return m.syncErr }
+func (m *memDevice) Close() error { m.closed = true; return nil }
+func (m *memDevice) Path() string { return m.path }
+func (m *memReader) Close() error { return nil }
+func (m *memReader) Path() string { return m.path }
 
 func source() SourceDisk {
 	return SourceDisk{VM: "vm-src", Snapshot: "snapshot-1", Key: 2000, Path: sourcePath, UUID: sourceUUID,
@@ -1210,6 +1269,176 @@ func TestRecoveryDetachesInTheJournaledMode(t *testing.T) {
 			t.Fatalf("the record must be kept for review; records: %d", n)
 		}
 	})
+}
+
+// writableSource is the current disk of a powered-off VM, opened without a snapshot: the one case D-A003 writes.
+func writableSource() SourceDisk {
+	src := source()
+	src.Snapshot, src.PoweredOff = "", true
+	return src
+}
+
+func TestOpenWriteClose(t *testing.T) {
+	p, h, o := setup(t)
+	o.Writable = true
+	o.ReadAhead.Block, o.ReadAhead.Depth, o.ReadAhead.Align = 4096, 4, 512 // must not be used for a disk being written
+	a, err := Open(context.Background(), p, h, writableSource(), o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !p.attaches[0].Writable || !a.Writable() {
+		t.Fatalf("attach spec %+v, writable %v", p.attaches[0], a.Writable())
+	}
+	if r := a.Record(); !r.Writable || r.DiskMode != "independent_persistent" || r.RedoKey != "" {
+		t.Fatalf("journal record: writable=%v mode=%q redo key=%q", r.Writable, r.DiskMode, r.RedoKey)
+	}
+	data := bytes.Repeat([]byte("W"), 1024)
+	if err := a.WriteFull(data, 512); err != nil {
+		t.Fatal(err)
+	}
+	got := make([]byte, 1024)
+	if err := a.ReadFull(got, 512); err != nil || !bytes.Equal(got, data) {
+		t.Fatalf("read after write = %q, %v", got[:8], err)
+	}
+	if err := a.Flush(); err != nil || h.wdev.syncs != 1 {
+		t.Fatalf("flush: %v, syncs %d", err, h.wdev.syncs)
+	}
+	if err := a.Close(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if h.wdev.syncs != 2 || !h.wdev.closed {
+		t.Fatalf("close: syncs %d (want a flush before the device is closed), closed %v", h.wdev.syncs, h.wdev.closed)
+	}
+	if len(p.detaches) != 1 || p.detaches[0].ExpectMode != "independent_persistent" || len(p.removed) != 0 || len(p.extra) != 0 {
+		t.Fatalf("detaches %+v, files removed %v, extraConfig %v", p.detaches, p.removed, p.extra)
+	}
+	if n := len(journalFiles(t, o.Journal)); n != 0 {
+		t.Fatalf("journal records left: %d", n)
+	}
+}
+
+func TestReadOnlyAttachmentRefusesWrites(t *testing.T) {
+	p, h, o := setup(t)
+	a, err := Open(context.Background(), p, h, source(), o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a.Close(context.Background())
+	if a.Writable() || !errors.Is(a.WriteFull(make([]byte, 512), 0), linuxdev.ErrWriteRefused) || a.Flush() != nil {
+		t.Fatal("a read-only attachment accepted a write or failed a flush")
+	}
+}
+
+// Every case D-A003 does not write is refused before anything is attached.
+func TestWritableRefusals(t *testing.T) {
+	for _, c := range []struct {
+		name  string
+		setup func(*fakePlatform, *fakeHost, *Options, *SourceDisk)
+		want  error
+	}{
+		{"snapshot named", func(_ *fakePlatform, _ *fakeHost, _ *Options, s *SourceDisk) { s.Snapshot = "snapshot-1" }, ErrUnsupported},
+		{"running VM", func(_ *fakePlatform, _ *fakeHost, _ *Options, s *SourceDisk) { s.PoweredOff = false }, ErrUnsupported},
+		{"raw device mapping", func(_ *fakePlatform, _ *fakeHost, _ *Options, s *SourceDisk) { s.RDM, s.BackingKind = true, "rdm" }, ErrUnsupported},
+		{"unsafe host with the check relaxed", func(_ *fakePlatform, h *fakeHost, o *Options, _ *SourceDisk) {
+			h.safe, o.EnforceHostSafety = false, false
+		}, ErrUnsafe},
+		{"proxy without disk IDs", func(p *fakePlatform, _ *fakeHost, o *Options, _ *SourceDisk) {
+			p.diskIDs, o.ConfigureProxy = false, false
+		}, ErrUnavailable},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			p, h, o := setup(t)
+			o.Writable = true
+			src := writableSource()
+			c.setup(p, h, &o, &src)
+			_, err := Open(context.Background(), p, h, src, o)
+			if !errors.Is(err, c.want) {
+				t.Fatalf("Open = %v, want %v", err, c.want)
+			}
+			if strings.Contains(err.Error(), "snapshot is required") {
+				t.Fatalf("a write refusal names the rule for reads: %v", err)
+			}
+			if len(p.attaches) != 0 {
+				t.Fatalf("attached: %+v", p.attaches)
+			}
+		})
+	}
+}
+
+// A device with blocks other than 512 bytes is refused after the attach, which is then rolled back.
+func TestWritableLargeBlocksRolledBack(t *testing.T) {
+	p, h, o := setup(t)
+	o.Writable, h.lb = true, 4096
+	if _, err := Open(context.Background(), p, h, writableSource(), o); !errors.Is(err, linuxdev.ErrWriteRefused) {
+		t.Fatalf("Open = %v", err)
+	}
+	if len(p.detaches) != 1 || p.detaches[0].ExpectMode != "independent_persistent" || len(journalFiles(t, o.Journal)) != 0 {
+		t.Fatalf("rollback: detaches %+v, journal %v", p.detaches, journalFiles(t, o.Journal))
+	}
+}
+
+// A failed flush at Close does not leave the disk attached: the detach goes on and Close reports the flush.
+func TestFlushFailureAtCloseStillDetaches(t *testing.T) {
+	p, h, o := setup(t)
+	o.Writable = true
+	h.syncErr = errors.New("input/output error")
+	a, err := Open(context.Background(), p, h, writableSource(), o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := a.WriteFull(make([]byte, 512), 0); err != nil {
+		t.Fatal(err)
+	}
+	err = a.Close(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "may not be on the datastore") {
+		t.Fatalf("Close = %v", err)
+	}
+	if len(p.detaches) != 1 || len(journalFiles(t, o.Journal)) != 0 {
+		t.Fatalf("detaches %+v, journal %v", p.detaches, journalFiles(t, o.Journal))
+	}
+}
+
+// A written disk that the proxy claims when udev probes it is left attached for review, not pulled away.
+func TestClaimedAfterWritingStaysAttached(t *testing.T) {
+	p, h, o := setup(t)
+	o.Writable = true
+	a, err := Open(context.Background(), p, h, writableSource(), o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.claim(a.Record().LocalDevice)
+	if err := a.Close(context.Background()); !errors.Is(err, ErrUnsafe) {
+		t.Fatalf("Close = %v", err)
+	}
+	if len(p.detaches) != 0 || len(h.released) != 0 || len(journalFiles(t, o.Journal)) != 1 {
+		t.Fatalf("detaches %+v, released %v, journal %v", p.detaches, h.released, journalFiles(t, o.Journal))
+	}
+	// Recovery refuses it as well while it stays claimed.
+	if c, r, _ := Recover(context.Background(), p, h, o, "vm-proxy"); c != 0 || r != 1 {
+		t.Fatalf("recover = %d,%d", c, r)
+	}
+}
+
+func TestRecoveryWarnsAboutWritableAttachments(t *testing.T) {
+	p, h, o := setup(t)
+	o.Writable = true
+	var warned []string
+	o.Warnf = func(f string, args ...any) { warned = append(warned, fmt.Sprintf(f, args...)) }
+	a, err := Open(context.Background(), p, h, writableSource(), o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.entry.Release() // the writing process is killed
+	warned = nil
+	if c, _, errs := Recover(context.Background(), p, h, o, "vm-proxy"); c != 1 || len(errs) != 0 {
+		t.Fatalf("recover = %d, %v", c, errs)
+	}
+	if len(p.detaches) != 1 || p.detaches[0].ExpectMode != "independent_persistent" || len(p.removed) != 0 {
+		t.Fatalf("detaches %+v, files removed %v", p.detaches, p.removed)
+	}
+	if len(warned) != 1 || !strings.Contains(warned[0], "content is undefined") {
+		t.Fatalf("warnings: %q", warned)
+	}
 }
 
 // A read-only attachment is journaled, closed and recovered in independent_nonpersistent, as before the mode was

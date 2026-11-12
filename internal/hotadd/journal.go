@@ -72,8 +72,10 @@ type Record struct {
 	// it did not, the device is known by LocalDevice and its position only.
 	DeviceHasID bool `json:"device_has_id,omitempty"`
 	// DiskMode is the disk mode the attachment was made in. Records written before it was journaled carry none:
-	// they are read-only independent_nonpersistent attachments.
+	// they are read-only independent_nonpersistent attachments. Writable records an attachment opened for writing
+	// (D-A003).
 	DiskMode string `json:"disk_mode,omitempty"`
+	Writable bool   `json:"writable,omitempty"`
 
 	CleanupAttempts int    `json:"cleanup_attempts,omitempty"`
 	LastError       string `json:"last_error,omitempty"`
