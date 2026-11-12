@@ -11,10 +11,10 @@ This library is not a complete VixDiskLib replacement. Only rows marked SUPPORTE
 | Status | Functions |
 |---|---|
 | NOT-YET-INVESTIGATED | 10 |
-| PARTIAL | 19 |
+| PARTIAL | 21 |
 | PLANNED | 1 |
 | SUPPORTED | 8 |
-| UNSUPPORTED-BY-DESIGN | 5 |
+| UNSUPPORTED-BY-DESIGN | 3 |
 
 Status meanings:
 
@@ -50,9 +50,9 @@ Status meanings:
 | `VixDiskLib_GetTransportMode` | VIXDISKLIB_1.1 | yes | partial | hotadd, nbdssl, nbd (read-only) | n/a | any | `args.gettransportmode-null`, `lab: ab-swap, hotadd-crash (HOTADD-0003)` | yes | yes | vixcopy (HOTADD-0003); nbdkit 1.38.5 VDDK plugin (HOTADD-0025) | **PARTIAL** |
 | `VixDiskLib_Read` | VIXDISKLIB_1.0 | yes | partial | hotadd, nbdssl, nbd (read-only) | no | per-disk | `args.read-null`, `lab: ab-swap, hotadd-crash (HOTADD-0003)` | yes | yes | vixcopy (HOTADD-0003) | **PARTIAL** |
 | `VixDiskLib_ReadAsync` | VIXDISKLIB_6.0 | yes | partial | hotadd, nbdssl, nbd (read-only) | no | per-disk | `args.readasync-null`, `lab: async probe and copy (HOTADD-0004)` | no | no | vixcopy (HOTADD-0004); nbdkit 1.38.5 VDDK plugin (HOTADD-0025) | **PARTIAL** |
-| `VixDiskLib_Write` | VIXDISKLIB_1.0 | yes | none | no (read-only) | no | per-disk | `args.write-null` | no | no | — | **UNSUPPORTED-BY-DESIGN** |
-| `VixDiskLib_WriteAsync` | VIXDISKLIB_6.0 | yes | none | no (read-only) | no | per-disk | `args.writeasync-null` | no | no | — | **UNSUPPORTED-BY-DESIGN** |
-| `VixDiskLib_Flush` | VIXDISKLIB_6.0 | yes | partial | hotadd, nbdssl, nbd (read-only) | no | per-disk | `args.flush-null` | no | no | — | **PARTIAL** |
+| `VixDiskLib_Write` | VIXDISKLIB_1.0 | yes | partial | nbdssl, nbd (powered-off VM, no snapshot, opt-in per transport family) | no | per-disk | `args.write-null`, `lab: HOTADD-A001, NET-A001, NET-A002 (reference), NBD-A001, NBD-A002 (candidate)` | no | no | vixwrite (NBD-A001) | **PARTIAL** |
+| `VixDiskLib_WriteAsync` | VIXDISKLIB_6.0 | yes | partial | nbdssl, nbd (powered-off VM, no snapshot, opt-in per transport family) | no | per-disk | `args.writeasync-null`, `lab: NET-A002 (reference), NBD-A001 (candidate)` | no | no | vixwrite (NBD-A001) | **PARTIAL** |
+| `VixDiskLib_Flush` | VIXDISKLIB_6.0 | yes | partial | hotadd, nbdssl, nbd (read-only); writes over nbdssl and nbd (D-A002) | no | per-disk | `args.flush-null` | no | no | — | **PARTIAL** |
 | `VixDiskLib_Wait` | VIXDISKLIB_6.5 | yes | partial | hotadd, nbdssl, nbd (read-only) | no | per-disk | `args.wait-null` | no | no | nbdkit 1.38.5 VDDK plugin (HOTADD-0025) | **PARTIAL** |
 | `VixDiskLib_QueryAllocatedBlocks` | VIXDISKLIB_6.7 | yes | partial | hotadd, nbdssl, nbd (read-only) | no | per-disk | `args.queryallocatedblocks-null`, `lab: API probe (HOTADD-0003)` | yes | yes | vixcopy (HOTADD-0003); nbdkit 1.38.5 VDDK plugin (HOTADD-0025) | **PARTIAL** |
 | `VixDiskLib_FreeBlockList` | VIXDISKLIB_6.7 | yes | full | n/a | n/a | any | `args.freeblocklist-null`, `lab: API probe (HOTADD-0003)` | yes | yes | nbdkit 1.38.5 VDDK plugin (HOTADD-0025) | **SUPPORTED** |
@@ -150,7 +150,7 @@ The reference library also exports 3 further internal functions that no public d
 `VixError VixDiskLib_ConnectEx(const VixDiskLibConnectParams *connectParams, VixDiskLibBool readOnly, const char *snapshotRef, const char *transportModes, VixDiskLibConnection *connection)`
 
 - Ownership: Parameters are borrowed for the call; the connection is released with Disconnect.
-- Known differences: Before initialization: VIX_E_DISK_NOINIT, as in the reference. User/password credentials only; the thumbprint (SHA-1 or SHA-256) is enforced when given. With HotAdd requested it signs in and refuses a BIOS UUID shared by several VMs with VIX_E_INVALID_ARG, as the reference does (HOTADD-0014, D-0018); every other remote check (credentials, VM, snapshot) is reported by Open, as in the reference. The transport list is read as the reference reads it: exact names only; file, san and names it does not know are skipped; a list with nothing usable, an empty string included, fails here with VIX_E_INVALID_ARG, as in the reference; outside a VMware virtual machine HotAdd is not usable, so a list of only hotadd fails here too, as in the reference (NBD-0019, NBD-0021). Local connections are not supported.
+- Known differences: Before initialization: VIX_E_DISK_NOINIT, as in the reference. User/password credentials only; the thumbprint (SHA-1 or SHA-256) is enforced when given. With HotAdd requested it signs in and refuses a BIOS UUID shared by several VMs with VIX_E_INVALID_ARG, as the reference does (HOTADD-0014, D-0018); every other remote check (credentials, VM, snapshot) is reported by Open, as in the reference. The transport list is read as the reference reads it: exact names only; file, san and names it does not know are skipped; a list with nothing usable, an empty string included, fails here with VIX_E_INVALID_ARG, as in the reference; outside a VMware virtual machine HotAdd is not usable, so a list of only hotadd fails here too, as in the reference (NBD-0019, NBD-0021). Local connections are not supported. A read-write connection (readOnly FALSE) lets a disk be opened for writing once writes are switched on (D-A001).
 
 ### `VixDiskLib_Disconnect`
 
@@ -185,14 +185,14 @@ The reference library also exports 3 further internal functions that no public d
 `VixError VixDiskLib_Open(const VixDiskLibConnection connection, const char *path, uint32_t flags, VixDiskLibHandle *diskHandle)`
 
 - Ownership: The disk handle is released with Close.
-- Known differences: Unknown connection: VIX_E_DISK_INVALID_CONNECTION, as in the reference. Read-only opens only. HotAdd needs a snapshot (or a powered-off VM) and refuses encrypted and physical-mode RDM source disks; an independent disk is not a disk of the VM (13, 1 with nbd alone), as in the reference; a virtual-mode RDM is read. No silent fallback: a missing snapshot is an error, where the reference silently uses NBD (HOTADD-0002). Signs in here if ConnectEx did not (HotAdd not requested, or the sign-in failed there); a rejected sign-in is not retried.
+- Known differences: Unknown connection: VIX_E_DISK_INVALID_CONNECTION, as in the reference. An open without VIXDISKLIB_FLAG_OPEN_READ_ONLY needs writes over the transport switched on outside the program (OpenVDDK.nbd.write in the configuration file, or OPENVIX_NBD_WRITE; else 6), a read-write connection (else 3), NBDSSL or NBD in the transport list (else 6) and the current top file of a powered-off VM's disk with no snapshot named (else 13); it never moves on to another transport, and never from NBDSSL to NBD (D-A001, D-A002). The reference writes without a switch, also at snapshots and into a parent of a snapshot chain, and falls back between transports silently (HOTADD-A001). HotAdd needs a snapshot (or a powered-off VM) and refuses encrypted and physical-mode RDM source disks; an independent disk is not a disk of the VM (13, 1 with nbd alone), as in the reference; a virtual-mode RDM is read. No silent fallback: a missing snapshot is an error, where the reference silently uses NBD (HOTADD-0002). Signs in here if ConnectEx did not (HotAdd not requested, or the sign-in failed there); a rejected sign-in is not retried.
 
 ### `VixDiskLib_Close`
 
 `VixError VixDiskLib_Close(VixDiskLibHandle diskHandle)`
 
 - Ownership: Releases the disk handle and every resource the open acquired.
-- Known differences: Unknown handle: VIX_E_INVALID_HANDLE, as in the reference for NULL. Releases the guest device, detaches, removes redo leftovers and ends the journaled transaction; a failed step keeps the journal for recovery and returns an error.
+- Known differences: Unknown handle: VIX_E_INVALID_HANDLE, as in the reference for NULL. Releases the guest device, detaches, removes redo leftovers and ends the journaled transaction; a failed step keeps the journal for recovery and returns an error. A disk open for writing over NBDSSL or NBD is flushed first, where the reference sends no flush; Close returns the handle's first failed write or flush (8, 7 or 14009, D-A002).
 
 ### `VixDiskLib_GetInfo`
 
@@ -233,20 +233,20 @@ The reference library also exports 3 further internal functions that no public d
 `VixError VixDiskLib_Write(VixDiskLibHandle diskHandle, VixDiskLibSectorType startSector, VixDiskLibSectorType numSectors, const uint8_t *writeBuffer)`
 
 - Ownership: The buffer is borrowed for the call.
-- Known differences: Read-only by design (D-0027). Unknown handle: VIX_E_INVALID_HANDLE. Valid handle: VIX_E_FILE_READ_ONLY (11), as the reference answers on a read-only handle (A15, D-0023). A write in the other I/O mode than the handle's first write: VIX_E_ASYNC_MIXEDMODE_UNSUPPORTED.
+- Known differences: Writes only to the current top disk file of a powered-off VM opened without a snapshot, over NBDSSL and NBD, once writes are switched on (D-A001, D-A002); a write never moves from NBDSSL to NBD. The reference also writes at snapshots and into a parent of a snapshot chain, which breaks the chain, and falls back between transports silently (HOTADD-A001). Errors as the reference: out of space 8, a lost session 14009; another refusal 7; every call after the host ended the session 14009 (NET-A002). A write past the end: 16007 before anything is sent. Unknown handle: VIX_E_INVALID_HANDLE. A read-only handle: VIX_E_FILE_READ_ONLY (11), as the reference (A15, D-0023). A write in the other I/O mode than the handle's first write: VIX_E_ASYNC_MIXEDMODE_UNSUPPORTED.
 
 ### `VixDiskLib_WriteAsync`
 
 `VixError VixDiskLib_WriteAsync(VixDiskLibHandle diskHandle, VixDiskLibSectorType startSector, VixDiskLibSectorType numSectors, const uint8_t *writeBuffer, VixDiskLibCompletionCB callback, void *cbData)`
 
 - Ownership: The buffer must stay valid until the completion callback runs.
-- Known differences: Read-only by design (D-0027). Unknown handle: VIX_E_INVALID_HANDLE. Valid handle: VIX_E_FILE_READ_ONLY (11), as the reference answers on a read-only handle (A15, D-0023). Returns VIX_ASYNC and reports 11 through the completion callback; mixed I/O modes as Write.
+- Known differences: As Write (D-A001, D-A002). The write completes on the calling thread and the callback gets its result before VIX_ASYNC is returned; over NBDSSL and NBD the reference calls back on a thread of its own (NET-A002). Unknown handle and mixed I/O modes fail at once without a callback. A read-only handle: VIX_ASYNC, and 11 through the completion callback (A15).
 
 ### `VixDiskLib_Flush`
 
 `VixError VixDiskLib_Flush(VixDiskLibHandle diskHandle)`
 
-- Known differences: Unknown handle: VIX_E_INVALID_HANDLE, as in the reference for NULL. VIX_OK for a valid read-only handle (nothing to flush).
+- Known differences: Unknown handle: VIX_E_INVALID_HANDLE, as in the reference for NULL. VIX_OK for a valid read-only handle (nothing to flush). On a disk open for writing over NBDSSL or NBD, the flush message; out of space 8, as the reference. After a failed write or flush it returns that error, where the reference returns 0 without sending anything (NET-A002, D-A002).
 
 ### `VixDiskLib_Wait`
 
@@ -280,7 +280,7 @@ The reference library also exports 3 further internal functions that no public d
 `VixError VixDiskLib_WriteMetadata(VixDiskLibHandle diskHandle, const char *key, const char *val)`
 
 - Ownership: Arguments are borrowed for the call.
-- Known differences: Read-only by design (D-0027). Unknown handle: VIX_E_INVALID_HANDLE. Valid handle: VIX_E_FILE_READ_ONLY (11), as the reference answers on a read-only handle (A15, D-0023).
+- Known differences: Unsupported by design (D-0027, D-A001). Unknown handle: VIX_E_INVALID_HANDLE. A read-only handle: VIX_E_FILE_READ_ONLY (11), as the reference answers on a read-only handle (A15, D-0023). A handle open for writing: VIX_E_NOT_SUPPORTED.
 
 ### `VixDiskLib_GetMetadataKeys`
 
@@ -317,13 +317,13 @@ The reference library also exports 3 further internal functions that no public d
 
 `VixError VixDiskLib_Shrink(VixDiskLibHandle diskHandle, VixDiskLibProgressFunc progressFunc, void *progressCallbackData)`
 
-- Known differences: Read-only by design (D-0027). Unknown handle: VIX_E_INVALID_HANDLE. Valid handle: VIX_E_FILE_READ_ONLY (11), as the reference answers on a read-only handle (A15, D-0023).
+- Known differences: Unsupported by design (D-0027, D-A001). Unknown handle: VIX_E_INVALID_HANDLE. A read-only handle: VIX_E_FILE_READ_ONLY (11), as the reference answers on a read-only handle (A15, D-0023). A handle open for writing: VIX_E_NOT_SUPPORTED.
 
 ### `VixDiskLib_Defragment`
 
 `VixError VixDiskLib_Defragment(VixDiskLibHandle diskHandle, VixDiskLibProgressFunc progressFunc, void *progressCallbackData)`
 
-- Known differences: Read-only by design (D-0027). Unknown handle: VIX_E_INVALID_HANDLE. Valid handle: VIX_E_FILE_READ_ONLY (11), as the reference answers on a read-only handle (A15, D-0023).
+- Known differences: Unsupported by design (D-0027, D-A001). Unknown handle: VIX_E_INVALID_HANDLE. A read-only handle: VIX_E_FILE_READ_ONLY (11), as the reference answers on a read-only handle (A15, D-0023). A handle open for writing: VIX_E_NOT_SUPPORTED.
 
 ### `VixDiskLib_Rename`
 

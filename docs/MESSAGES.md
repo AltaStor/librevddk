@@ -37,6 +37,8 @@ file listed here.
 | internal/lifecycle/lifecycle.go:120 | LOG | `OpenVDDK <version> (<commit>), independent implementation; VixDiskLib 8.0.3 ABI (…)` | first successful Init/InitEx |
 | internal/lifecycle/lifecycle.go:121 | LOG | `initialized for client %d.%d; available transport modes: %s` | same |
 | internal/lifecycle/lifecycle.go:118 | LOG | `re-initialized for client %d.%d` | Init/InitEx while initialized |
+| internal/lifecycle/lifecycle.go:125 | LOG | `writes over %s enabled by %s: a disk opened without the read-only flag may be written` | Init/InitEx, once for each transport family a switch outside the program turns writes on for: `OPENVIX_NBD_WRITE`, `OpenVDDK.nbd.write` in the configuration file, each one that does (D-A001) |
+| internal/lifecycle/lifecycle.go:106 | WARN | `writes: %s` | Init/InitEx, once for each problem with a switch: a value that is not a switch value in the environment or in the configuration file; writes over that family stay off from that source (D-A001) |
 | internal/lifecycle/lifecycle.go:64 | WARN | `client requested VixDiskLib %d.%d; this library provides 8.0` | client version above 8.0 (the call fails) |
 | internal/lifecycle/lifecycle.go:93 | WARN | `configuration file not used: %v` | the configuration file cannot be read |
 | internal/lifecycle/lifecycle.go:96 | WARN | `configuration: %s` | one line per problem in the file (`internal/config/config.go:89`, `:97`, `:101`, `:110`, `:115`: malformed line, unterminated quote, repeated key, unknown project key) |
@@ -74,6 +76,7 @@ file listed here.
 | Where | Level | Text | When |
 |---|---|---|---|
 | internal/core/core.go:590 | LOG | `Open disk '%s' (read-only, flags %#x) over %v` | Open starts |
+| internal/core/core.go:592 | LOG | `Open disk '%s' for writing (flags %#x) over %v` | Open without `VIXDISKLIB_FLAG_OPEN_READ_ONLY` starts, once writes are switched on (D-A001) |
 | internal/hotadd/hotadd.go:341 | WARN | `HotAdd: host safety: %s` | host safety failed and `OpenVDDK.hotadd.hostSafety = "warn"` (G12 fixed in 0.6.9: a warning on the warn level) |
 | internal/hotadd/hotadd.go:357 | LOG | `HotAdd: recovery before open: cleaned=%d remaining=%d errors=%v` | Open found orphaned transactions of this proxy |
 | internal/hotadd/hotadd.go:209 | LOG | `HotAdd: %s: reads in flight did not come down to %d per device within %s; reconfiguring anyway` | an attach, detach or recovery detach found reads still in flight after 5 s (D-0024; also under `VixDiskLib_Close` and `VixDiskLib_Cleanup`) |
@@ -95,6 +98,9 @@ file listed here.
 | internal/core/core.go:668 | LOG | `%s: open timing for %s: login=… … total=…` | Open succeeded over NBD or NBDSSL (the transport first) |
 | internal/core/nbd.go:311 | LOG | `%s: opened over %s through %s (NFC version %d)` | Open over NBD or NBDSSL: the transport, the host address used and its NFC version |
 | internal/core/nbd.go:319 | LOG | `%s: reads spread over %d NFC sessions` | Open over NBD or NBDSSL with `OpenVDDK.nbd.sessions` above 1: the sessions the disk is open in (D-0045) |
+| internal/core/nbd.go:285 | LOG | `%s: open for writing in one NFC session; OpenVDDK.nbd.sessions = %d applies to reads` | Open for writing over NBD or NBDSSL when `OpenVDDK.nbd.sessions` is above 1 (D-A002) |
+| internal/core/nbd.go:313 | WARN | `%s: open for writing over %s through %s` | every Open for writing over NBDSSL or NBD: the transport and the host (D-A002) |
+| internal/core/nbd.go:315 | WARN | `%s: NBD carries the data written in clear text: on the network it can be read and changed; NBDSSL encrypts it` | every Open for writing over NBD (D-A002) |
 | internal/core/nbd.go:263 | LOG | `%s: NFC read timeout %v, socket buffers %d/%d bytes, the host's asked %d/%d bytes (0: the default; the host's at most %d)` | Open over NBD or NBDSSL when the configuration sets `vixDiskLib.nfc.ReadTimeoutMs` or a `vixDiskLib.nfcAio.SocketOption` key (D-0049) |
 | internal/core/nbd.go:267 | LOG | `%s: NFC AIO buffers asked of the host: size %d KiB, count %d (0: the host's default)` | Open over NBD or NBDSSL when the configuration sets `vixDiskLib.nfcAio.Session.BufSizeIn64KB` or `.BufCount` (D-0048) |
 | internal/core/nbd.go:295 | WARN | `%s: NFC session %d of %d not opened (%v); reading in %d` | Open over NBD or NBDSSL when a further session cannot be opened (ticket, connection or the host's open refused); Open succeeds with the sessions already open (D-0045) |
@@ -124,8 +130,11 @@ file listed here.
 | internal/core/core.go:974 | WARN | `Read %d sectors at %d of %s failed: error %d (%s): %v` | a Read failed: the device returned an I/O error (7, as the reference), the device went away (1, as the reference), the range is outside the disk (catalogue S1, S2; HOTADD-0023) |
 | internal/core/core.go:971 | WARN | `Read %d sectors at %d of %s failed: error %d (%s): %v` | the same over NBD or NBDSSL, as an NFC message (it follows `vixDiskLib.nfc.LogLevel`, D-0049) |
 | internal/core/nbd.go:408 | WARN | `The ESXi host ended the NFC session for this disk: it accepted no more transfers. …` | once per disk, after the first read (or ReadAsync) the host ended with SessionComplete, which returns 1: the host's NFC memory is the likely cause; the line says what to do (NBD-0033) |
+| internal/core/write.go:124 | WARN | `Write %d sectors at %d of %s failed: error %d (%s): %v` | a Write failed on a disk open for writing over NBDSSL or NBD, as an NFC message (D-A002): 8 when the host ran out of space, 7 for another refusal, 14009 for a lost session and for every write after the host ended the session |
+| internal/core/write.go:151 | WARN | `Flush of %s failed: error %d (%s): %v; the data written since the last successful Flush is undefined` | a Flush failed over NBDSSL or NBD, or follows a failed write or flush, whose error it returns (D-A002) |
 | internal/core/async.go:127 | WARN | `ReadAsync %d sectors at %d of %s failed: error %d (%s): %v` | an asynchronous read over NBD or NBDSSL failed (14009 when the NFC connection was lost, as the reference); the callback receives the code |
 | internal/core/nbd.go:94 | LOG | `%s: the NFC session had already ended (%v); nothing to release on the host` | Close over NBD or NBDSSL after a read saw the connection end; Close succeeds |
+| internal/core/nbdwrite.go:146 | WARN | `%s: closing the file after the writes: %v` | Close of a disk open for writing over NBDSSL or NBD, when closing the file or the session fails after the flush (D-A002) |
 | internal/core/core.go:1012 | LOG | `read %d GiB of %s so far: %.0f MiB/s since open; %.0f s of %.0f s spent inside Read` | every 10 GiB read on one handle |
 | internal/core/core.go:1057 | LOG | `%s: %d sectors, adapter %d, %d link(s)` | every GetInfo |
 | internal/core/core.go:1067 | LOG | `%s: %s` (disk, transport) | every GetTransportMode |
@@ -158,6 +167,7 @@ file listed here.
 | internal/core/core.go:887 | WARN | `%s: finishing the detach after a new sign-in failed: %v` | the new sign-in or the recovery failed (A4) |
 | internal/core/core.go:890 | WARN | `%s: %v` | Close failed; the journal record is kept for recovery |
 | internal/core/core.go:1034 | LOG | `closed %s: %d reads, %d bytes, %.0f MiB/s since open; %.3f s of %.3f s spent inside Read; close took %.3f s` | Close succeeded |
+| internal/core/core.go:1046 | LOG | `wrote %s: %d writes, %d bytes, %.0f MiB/s of Write time; %.3f s spent inside Write` | Close of a disk that was written |
 | internal/core/core.go:1036–853 | LOG | `Disk Open Time: %d milliseconds.`, `Disk Close Time: …`, `Disk IO Time: …`, and with reads `Disk IO Size: %d sectors`, `Disk IO Count: %d`, `Disk IO Speed: %.2f MB/s` (no function name) | after the `closed` line (D-0021) |
 
 ### `VixDiskLib_Disconnect`
