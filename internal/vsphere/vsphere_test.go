@@ -200,6 +200,22 @@ func TestResolveAttachDetach(t *testing.T) {
 		}
 		after, _ = p.Proxy(ctx, info.VM)
 
+		// A writable attachment is detached only in its journaled mode, independent_persistent (D-A003).
+		spec.Writable = true
+		key, err = p.Attach(ctx, spec)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, mode := range []string{"", "independent_nonpersistent", "persistent"} {
+			if err := p.Detach(ctx, hotadd.DetachSpec{ProxyVM: info.VM, DeviceKey: key, ExpectPath: path, ExpectMode: mode}); err == nil {
+				t.Fatalf("writable attachment detached with expected mode %q", mode)
+			}
+		}
+		if err := p.Detach(ctx, hotadd.DetachSpec{ProxyVM: info.VM, DeviceKey: key, ExpectPath: path, ExpectMode: "independent_persistent"}); err != nil {
+			t.Fatal(err)
+		}
+		after, _ = p.Proxy(ctx, info.VM)
+
 		// Disk ID settings: absent on a fresh VM, TRUE after EnableDiskIDs.
 		if after.DiskIDs {
 			t.Fatal("a fresh VM reports disk IDs enabled")
@@ -335,6 +351,24 @@ func TestDetachSpecNeverDeletesFiles(t *testing.T) {
 	rdm.RDMPhysical = true
 	if _, err := AttachConfigSpec(hotadd.AttachSpec{Controller: hotadd.Controller{Key: 1000}, Unit: 2, Source: rdm}); err == nil {
 		t.Fatal("a physical-mode RDM was attached")
+	}
+
+	// A disk opened for writing is attached independent_persistent, without a file operation (D-A003); a raw device
+	// mapping never is.
+	w, err := AttachConfigSpec(hotadd.AttachSpec{
+		Controller: hotadd.Controller{Key: 1000}, Unit: 3, Writable: true,
+		Source: hotadd.SourceDisk{Path: "[ds] w.vmdk", BackingKind: "flat", CapacityBytes: 1 << 30},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c = w.DeviceChange[0].GetVirtualDeviceConfigSpec()
+	if wb := c.Device.(*types.VirtualDisk).Backing.(*types.VirtualDiskFlatVer2BackingInfo); c.FileOperation != "" || wb.DiskMode != "independent_persistent" || len(w.ExtraConfig) != 0 {
+		t.Fatalf("writable attach %q %+v", c.FileOperation, wb)
+	}
+	rdm.RDMPhysical = false
+	if _, err := AttachConfigSpec(hotadd.AttachSpec{Controller: hotadd.Controller{Key: 1000}, Unit: 2, Source: rdm, Writable: true}); err == nil {
+		t.Fatal("a raw device mapping was attached for writing")
 	}
 }
 

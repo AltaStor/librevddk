@@ -1,4 +1,5 @@
 // Copyright 2026 Andrija Panic and the OpenVDDK contributors
+// Copyright 2026 Norvitex OU (AltaStor.com) (modifications)
 // SPDX-License-Identifier: Apache-2.0
 
 package linuxdev
@@ -16,7 +17,7 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// Device is a verified, read-only open of a HotAdd-attached disk.
+// Device is a verified open of a HotAdd-attached disk: read-only, or for writing (D-A003).
 type Device struct {
 	f        *os.File
 	path     string
@@ -25,6 +26,7 @@ type Device struct {
 	direct   bool
 	block    int
 	roSet    bool
+	writable bool
 	bounceMu sync.Mutex
 	bounce   []byte
 }
@@ -39,11 +41,18 @@ var ErrIdentity = errors.New("device identity verification failed")
 // to set it is not fatal.
 // An empty wantWWID means the device is expected to carry no ID at all.
 func (h Host) OpenVerified(d Disk, wantWWID string, wantBytes int64, direct bool) (*Device, error) {
+	return h.open(d, wantWWID, wantBytes, direct, false)
+}
+
+func (h Host) open(d Disk, wantWWID string, wantBytes int64, direct, writable bool) (*Device, error) {
 	if d.WWID != wantWWID {
 		return nil, fmt.Errorf("%w: %s has WWID %q, want %q", ErrIdentity, d.Name, d.WWID, wantWWID)
 	}
 	path := filepath.Join(h.Dev, d.Name)
 	flags := os.O_RDONLY | unix.O_CLOEXEC
+	if writable {
+		flags = os.O_RDWR | unix.O_CLOEXEC
+	}
 	if direct {
 		flags |= unix.O_DIRECT
 	}
@@ -51,13 +60,21 @@ func (h Host) OpenVerified(d Disk, wantWWID string, wantBytes int64, direct bool
 	if err != nil {
 		return nil, err
 	}
-	dev := &Device{f: f, path: path, wwid: wantWWID, direct: direct, block: int(d.LogicalBlock)}
+	dev := &Device{f: f, path: path, wwid: wantWWID, direct: direct, block: int(d.LogicalBlock), writable: writable}
 	if dev.block <= 0 {
 		dev.block = 512
 	}
 	if err := dev.verify(h, d, wantBytes); err != nil {
 		f.Close()
 		return nil, err
+	}
+	if writable {
+		// A device left read-only by an earlier read-only open must accept the writes.
+		if err := unix.IoctlSetPointerInt(int(f.Fd()), unix.BLKROSET, 0); err != nil {
+			f.Close()
+			return nil, &os.PathError{Op: "BLKROSET", Path: path, Err: err}
+		}
+		return dev, nil
 	}
 	if err := unix.IoctlSetPointerInt(int(f.Fd()), unix.BLKROSET, 1); err == nil {
 		dev.roSet = true

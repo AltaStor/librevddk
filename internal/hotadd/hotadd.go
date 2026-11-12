@@ -87,6 +87,9 @@ type AttachSpec struct {
 	Controller Controller
 	Unit       int32
 	Source     SourceDisk
+	// Writable attaches the disk independent_persistent, so writes reach the disk itself (D-A003).
+	// Without it the disk is attached independent_nonpersistent and every write is discarded at detach.
+	Writable bool
 }
 
 // DetachSpec describes one detachment. Platform implementations must remove

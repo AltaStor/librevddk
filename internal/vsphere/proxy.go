@@ -167,21 +167,30 @@ func diskMode(disk *types.VirtualDisk) string {
 // the source file itself, independent_nonpersistent. ESXi chooses the redo
 // log location and records it in the proxy extraConfig itself; a location
 // set by the client is not cleaned up by ESXi at detach (HOTADD-0003).
+// A writable attachment (D-A003) is independent_persistent: no redo log, the
+// writes reach the disk, and snapshots of the proxy never capture them.
 func AttachConfigSpec(s hotadd.AttachSpec) (types.VirtualMachineConfigSpec, error) {
 	unit := s.Unit
+	mode := modeNonpersistent
+	if s.Writable {
+		if s.Source.BackingKind == "rdm" {
+			return types.VirtualMachineConfigSpec{}, fmt.Errorf("a raw device mapping is never attached for writing")
+		}
+		mode = modeWritable
+	}
 	var backing types.BaseVirtualDeviceBackingInfo
 	file := types.VirtualDeviceFileBackingInfo{FileName: s.Source.Path}
 	switch s.Source.BackingKind {
 	case "flat":
 		backing = &types.VirtualDiskFlatVer2BackingInfo{
 			VirtualDeviceFileBackingInfo: file,
-			DiskMode:                     modeNonpersistent,
+			DiskMode:                     mode,
 			ThinProvisioned:              types.NewBool(s.Source.Thin),
 		}
 	case "sesparse":
-		backing = &types.VirtualDiskSeSparseBackingInfo{VirtualDeviceFileBackingInfo: file, DiskMode: modeNonpersistent}
+		backing = &types.VirtualDiskSeSparseBackingInfo{VirtualDeviceFileBackingInfo: file, DiskMode: mode}
 	case "sparse":
-		backing = &types.VirtualDiskSparseVer2BackingInfo{VirtualDeviceFileBackingInfo: file, DiskMode: modeNonpersistent}
+		backing = &types.VirtualDiskSparseVer2BackingInfo{VirtualDeviceFileBackingInfo: file, DiskMode: mode}
 	case "rdm":
 		// A virtual-mode RDM (its mapping file, or a delta of it at a
 		// later snapshot), attached as the reference attaches it: virtual

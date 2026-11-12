@@ -77,23 +77,23 @@ file listed here.
 |---|---|---|---|
 | internal/core/core.go:590 | LOG | `Open disk '%s' (read-only, flags %#x) over %v` | Open starts |
 | internal/core/core.go:592 | LOG | `Open disk '%s' for writing (flags %#x) over %v` | Open without `VIXDISKLIB_FLAG_OPEN_READ_ONLY` starts, once writes are switched on (D-A001) |
-| internal/hotadd/hotadd.go:341 | WARN | `HotAdd: host safety: %s` | host safety failed and `OpenVDDK.hotadd.hostSafety = "warn"` (G12 fixed in 0.6.9: a warning on the warn level) |
-| internal/hotadd/hotadd.go:357 | LOG | `HotAdd: recovery before open: cleaned=%d remaining=%d errors=%v` | Open found orphaned transactions of this proxy |
-| internal/hotadd/hotadd.go:209 | LOG | `HotAdd: %s: reads in flight did not come down to %d per device within %s; reconfiguring anyway` | an attach, detach or recovery detach found reads still in flight after 5 s (D-0024; also under `VixDiskLib_Close` and `VixDiskLib_Cleanup`) |
+| internal/hotadd/hotadd.go:344 | WARN | `HotAdd: host safety: %s` | host safety failed and `OpenVDDK.hotadd.hostSafety = "warn"` (G12 fixed in 0.6.9: a warning on the warn level) |
+| internal/hotadd/hotadd.go:360 | LOG | `HotAdd: recovery before open: cleaned=%d remaining=%d errors=%v` | Open found orphaned transactions of this proxy |
+| internal/hotadd/hotadd.go:212 | LOG | `HotAdd: %s: reads in flight did not come down to %d per device within %s; reconfiguring anyway` | an attach, detach or recovery detach found reads still in flight after 5 s (D-0024; also under `VixDiskLib_Close` and `VixDiskLib_Cleanup`) |
 | internal/hotadd/recover.go:163 | LOG | `HotAdd: recovered transaction %s (%s at scsi%d:%d)` | each orphan recovered (under `VixDiskLib_Cleanup` when Cleanup recovers) |
-| internal/hotadd/hotadd.go:413 | LOG | `HotAdd: %s has no disk ID settings and OpenVDDK.hotadd.configureProxy is false; …` | proxy without disk IDs, changes forbidden |
-| internal/hotadd/hotadd.go:416 | WARN | `HotAdd: cannot set disk.EnableUUID and disk.AllowDupUUID on %s (%v); …` | switching the settings on failed (G12 fixed in 0.6.9: warn level) |
-| internal/hotadd/hotadd.go:419 | LOG | `HotAdd: set disk.EnableUUID and disk.AllowDupUUID to TRUE on %s, as the reference does; …` | the settings were switched on |
+| internal/hotadd/hotadd.go:416 | LOG | `HotAdd: %s has no disk ID settings and OpenVDDK.hotadd.configureProxy is false; …` | proxy without disk IDs, changes forbidden |
+| internal/hotadd/hotadd.go:419 | WARN | `HotAdd: cannot set disk.EnableUUID and disk.AllowDupUUID on %s (%v); …` | switching the settings on failed (G12 fixed in 0.6.9: warn level) |
+| internal/hotadd/hotadd.go:422 | LOG | `HotAdd: set disk.EnableUUID and disk.AllowDupUUID to TRUE on %s, as the reference does; …` | the settings were switched on |
 | internal/vsphere/hostconn.go:87 | WARN | `HotAdd: %s: the worker's host is not connected to vCenter; trying again in %s` | vCenter refused the attach (or, under Close, the detach) because the worker's host is not connected; tried again every 2–5 s (0.6.25, HOTADD-0048) |
 | internal/vsphere/hostconn.go:94 | LOG | `HotAdd: %s: an earlier try took effect` | before a new try the worker already shows the disk attached (or, under Close, gone) |
 | internal/vsphere/hostconn.go:79 | LOG | `HotAdd: %s: done after the worker's host was connected again (%d tries)` | the attach (or detach) succeeded after tries |
 | internal/vsphere/hostconn.go:84 | WARN | `HotAdd: %s: the worker's host is still not connected to vCenter after %s; giving up` | the host stayed away for 60 s (attach; Open then fails with 13) or 90 s (detach; Close fails, the journal is kept) |
-| internal/hotadd/hotadd.go:483 | LOG | `HotAdd: attached %s to %s at scsi%d:%d in %s` | attach task finished |
-| internal/hotadd/hotadd.go:711 | LOG | `HotAdd: redo log location not reported (%s=%q, err=%v)` | ESXi did not report the redo log (also under Close) |
-| internal/hotadd/hotadd.go:716 | LOG | `HotAdd: redo log %s is outside the proxy directory; left to ESXi` | unexpected redo log place (also under Close) |
-| internal/hotadd/hotadd.go:527 | LOG | `HotAdd: %s is %s (%s), verified by %s; proxy identified by %s` | guest device found and verified |
-| internal/hotadd/hotadd.go:529 | WARN | `HotAdd: %s carries LVM physical volume %s, as does this worker's own %s; if the worker restarts while the disk is attached, LVM may take the source disk for its own and the worker may not start (HOTADD-0027). …` | the source disk and the worker share an LVM physical volume UUID (one template) (D-0030); the remedy it names was proven in HOTADD-0032 |
-| internal/hotadd/hotadd.go:785 | LOG | `HotAdd: releasing %s in the guest: %v` | rollback or recovery could not release the guest device |
+| internal/hotadd/hotadd.go:486 | LOG | `HotAdd: attached %s to %s at scsi%d:%d in %s` | attach task finished |
+| internal/hotadd/hotadd.go:714 | LOG | `HotAdd: redo log location not reported (%s=%q, err=%v)` | ESXi did not report the redo log (also under Close) |
+| internal/hotadd/hotadd.go:719 | LOG | `HotAdd: redo log %s is outside the proxy directory; left to ESXi` | unexpected redo log place (also under Close) |
+| internal/hotadd/hotadd.go:530 | LOG | `HotAdd: %s is %s (%s), verified by %s; proxy identified by %s` | guest device found and verified |
+| internal/hotadd/hotadd.go:532 | WARN | `HotAdd: %s carries LVM physical volume %s, as does this worker's own %s; if the worker restarts while the disk is attached, LVM may take the source disk for its own and the worker may not start (HOTADD-0027). …` | the source disk and the worker share an LVM physical volume UUID (one template) (D-0030); the remedy it names was proven in HOTADD-0032 |
+| internal/hotadd/hotadd.go:788 | LOG | `HotAdd: releasing %s in the guest: %v` | rollback or recovery could not release the guest device |
 | internal/core/core.go:666 | LOG | `HotAdd: open timing for %s: login=… … total=…` | Open succeeded |
 | internal/core/core.go:668 | LOG | `%s: open timing for %s: login=… … total=…` | Open succeeded over NBD or NBDSSL (the transport first) |
 | internal/core/nbd.go:311 | LOG | `%s: opened over %s through %s (NFC version %d)` | Open over NBD or NBDSSL: the transport, the host address used and its NFC version |
@@ -153,15 +153,15 @@ file listed here.
 | Where | Level | Text | When |
 |---|---|---|---|
 | internal/core/core.go:871 | LOG | `Close disk '%s'` | Close starts |
-| internal/hotadd/hotadd.go:576 | LOG | `HotAdd: journal: %v` | Close could not journal its start |
-| internal/hotadd/hotadd.go:612 | LOG | `HotAdd: releasing %s in the guest: %v` | removing the guest SCSI device failed |
-| internal/hotadd/hotadd.go:600 | LOG | `HotAdd: listing the guest's disks before releasing %s: %v` | Close could not list the guest's disks to check the device before removing it; the device is left, the detach goes on |
-| internal/hotadd/hotadd.go:608 | WARN | `HotAdd: %s is no longer the attached disk (it was %s, %d sectors); not released in the guest` | at Close the device name belongs to another device (the disk went away during the session and the name was reused); that device is left alone (SECURITY-REVIEW-0.7.0) |
-| internal/hotadd/hotadd.go:653 | LOG | `HotAdd: detached %s from %s in %s` | detach task finished; the retry lines listed under Open (`internal/vsphere/hostconn.go`) also appear here for the detach |
-| internal/hotadd/hotadd.go:590 | LOG | `HotAdd: close timing for %s: stop-reads=… … total=…` | every Close of a HotAdd disk |
+| internal/hotadd/hotadd.go:579 | LOG | `HotAdd: journal: %v` | Close could not journal its start |
+| internal/hotadd/hotadd.go:615 | LOG | `HotAdd: releasing %s in the guest: %v` | removing the guest SCSI device failed |
+| internal/hotadd/hotadd.go:603 | LOG | `HotAdd: listing the guest's disks before releasing %s: %v` | Close could not list the guest's disks to check the device before removing it; the device is left, the detach goes on |
+| internal/hotadd/hotadd.go:611 | WARN | `HotAdd: %s is no longer the attached disk (it was %s, %d sectors); not released in the guest` | at Close the device name belongs to another device (the disk went away during the session and the name was reused); that device is left alone (SECURITY-REVIEW-0.7.0) |
+| internal/hotadd/hotadd.go:656 | LOG | `HotAdd: detached %s from %s in %s` | detach task finished; the retry lines listed under Open (`internal/vsphere/hostconn.go`) also appear here for the detach |
+| internal/hotadd/hotadd.go:593 | LOG | `HotAdd: close timing for %s: stop-reads=… … total=…` | every Close of a HotAdd disk |
 | internal/core/metadata.go:112 | WARN | `%s: metadata not available: %v` | the descriptors or the first sector could not be read on the first metadata call (D-0034); the call fails with 1 |
-| internal/vsphere/proxy.go:343 | LOG | `HotAdd: %s: %.3f s from the call to its completion; in vCenter %.3f s queued and %.3f s running (task %s); %.3f s outside the task` | after every attach or detach reconfigure of the worker (P5, HOTADD-0034); no function name |
-| internal/vsphere/proxy.go:346 | LOG | `HotAdd: %s: %.3f s from the call to its completion; vCenter reported no start and end time (task %s)` | the same, when the task's information lacks its times |
+| internal/vsphere/proxy.go:352 | LOG | `HotAdd: %s: %.3f s from the call to its completion; in vCenter %.3f s queued and %.3f s running (task %s); %.3f s outside the task` | after every attach or detach reconfigure of the worker (P5, HOTADD-0034); no function name |
+| internal/vsphere/proxy.go:355 | LOG | `HotAdd: %s: %.3f s from the call to its completion; vCenter reported no start and end time (task %s)` | the same, when the task's information lacks its times |
 | internal/core/core.go:882 | WARN | `%s: detach failed, the vCenter session is no longer valid; signing in again to finish it` | the session was removed while the disk was open (A4) |
 | internal/hotadd/recover.go:197 | LOG | `HotAdd: recovered transaction %s (%s at scsi%d:%d)` | the detach was finished after the new sign-in (A4) |
 | internal/core/core.go:887 | WARN | `%s: finishing the detach after a new sign-in failed: %v` | the new sign-in or the recovery failed (A4) |

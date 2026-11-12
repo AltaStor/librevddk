@@ -1,9 +1,11 @@
 // Copyright 2026 Andrija Panic and the OpenVDDK contributors
+// Copyright 2026 Norvitex OU (AltaStor.com) (modifications)
 // SPDX-License-Identifier: Apache-2.0
 
 package linuxdev
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -205,6 +207,58 @@ func TestReadFullAndBounce(t *testing.T) {
 		t.Fatal("read past the end succeeded")
 	}
 	dev.Close()
+}
+
+func TestWriteFullBounceAndSync(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "disk")
+	must(t, os.WriteFile(path, make([]byte, 8*512), 0o600))
+	f, err := os.OpenFile(path, os.O_RDWR, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dev := &Device{f: f, path: path, size: 8 * 512, block: 512, writable: true}
+	data := bytes.Repeat([]byte("w"), 1024)
+	if err := dev.WriteFull(data, 512); err != nil {
+		t.Fatal(err)
+	}
+	// The O_DIRECT path with a buffer that is not aligned goes through the bounce buffer.
+	dev.direct = true
+	backing := make([]byte, 1024+3)
+	odd := backing[3:]
+	copy(odd, bytes.Repeat([]byte("d"), 1024))
+	if err := dev.WriteFull(odd, 2048); err != nil {
+		t.Fatal(err)
+	}
+	must(t, dev.Sync())
+	got, _ := os.ReadFile(path)
+	if !bytes.Equal(got[512:1536], data) || !bytes.Equal(got[2048:3072], odd) || got[0] != 0 || got[1536] != 0 {
+		t.Fatal("written data not where it was written")
+	}
+	for _, c := range []struct {
+		name string
+		n    int
+		off  int64
+	}{{"part of a block", 100, 0}, {"unaligned offset", 512, 100}, {"past the end", 1024, 7 * 512}} {
+		if err := dev.WriteFull(make([]byte, c.n), c.off); err == nil {
+			t.Errorf("%s: write accepted", c.name)
+		}
+	}
+	dev.writable = false
+	if err := dev.WriteFull(make([]byte, 512), 0); !errors.Is(err, ErrWriteRefused) {
+		t.Fatalf("write on a read-only open: %v", err)
+	}
+	dev.Close()
+}
+
+func TestOpenWritableNeedsDiskIDAnd512ByteBlocks(t *testing.T) {
+	h := Host{Sys: t.TempDir(), Dev: t.TempDir()}
+	if _, err := h.OpenWritable(Disk{Name: "sdb", LogicalBlock: 512}, "", 1<<20, false); !errors.Is(err, ErrIdentity) {
+		t.Fatalf("a disk without an ID was opened for writing: %v", err)
+	}
+	d := Disk{Name: "sdb", WWID: "naa.6000c29", LogicalBlock: 4096}
+	if _, err := h.OpenWritable(d, "naa.6000c29", 1<<20, false); !errors.Is(err, ErrWriteRefused) {
+		t.Fatalf("a 4096-byte-block disk was opened for writing: %v", err)
+	}
 }
 
 func must(t *testing.T, err error) {
