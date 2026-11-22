@@ -20,7 +20,9 @@ deliberate and has a reason.
   the next listed transport is tried and the log line gives the reason;
   with `hotadd` alone, `Open` fails with `VIX_E_FILE_ACCESS_ERROR` (13).
   On a machine that is not a VMware virtual machine HotAdd cannot work:
-  as with VMware's library, it is skipped for the next listed transport,
+  as with VMware's library, it is skipped for the next listed transport
+  (from 0.7.5 with a note on the log callback, not a warning, since
+  nbdkit prints warnings as errors; VMware's library logs nothing),
   and a list whose only transport is `hotadd` fails at `ConnectEx` with
   `VIX_E_INVALID_ARG` (NBD-0021).
   NBDSSL is replaced by clear-text NBD only when the host refuses TLS for
@@ -43,8 +45,8 @@ deliberate and has a reason.
   callers use, both libraries go on to NBDSSL and read the same data.
   Matching VMware's stage and code is a candidate for a later version.
 - **HotAdd on a direct connection to an ESXi host** (the application signs
-  in to the host itself, from 0.7.4). OpenVDDK 0.7.4 does not use HotAdd
-  on such a connection: `Open` goes on to the next listed transport, and
+  in to the host itself, from 0.7.4). OpenVDDK does not use HotAdd on
+  such a connection: `Open` goes on to the next listed transport, and
   the log says why. With `hotadd` alone, `Open` fails with
   `VIX_E_FILE_ACCESS_ERROR` (13).
 
@@ -52,9 +54,8 @@ deliberate and has a reason.
   host it signs in to. It attaches the disk through the host itself (NET-0005, observed on an
   ESXi 6.7 host that a vCenter manages; a host without vCenter was not
   tried). So with `hotadd:nbdssl` VMware's library reads over HotAdd and
-  OpenVDDK over NBDSSL; the data is the same. HotAdd on a standalone ESXi
-  host, with the worker VM on that host, is a candidate for 0.7.5 (D-0052).
-  Until then, use NBD or NBDSSL on a direct ESXi connection.
+  OpenVDDK over NBDSSL; the data is the same. On a direct ESXi connection,
+  use NBD or NBDSSL (D-0052).
 
   NBDSSL and NBD on such a connection read as VMware's library reads, and
   `PrepareForAccess` and `EndAccess` fail with 20 in both libraries.
@@ -353,6 +354,12 @@ deliberate and has a reason.
   OpenVDDK's log line names the cause: "certificate thumbprint does not
   match the pinned value". VMware's library gives only the generic text
   for code 1, and nbdkit then lists several possible causes.
+- **The host ends an NFC session during a read** because its NFC memory
+  is full (too many sessions at once, or 2 MiB buffers; NBDSSL and NBD).
+  Both libraries fail the read with 1 (OpenVDDK from 0.7.5; 0.7.4 answered
+  14009). VMware's library logs only `NFC_SESSION_ERROR`; OpenVDDK logs
+  once per disk that the host's NFC memory is the likely cause, and what to
+  do about it (NBD-0033).
 - **Log lines** start with `OpenVDDK: VixDiskLib: ` and then the call's
   name as VMware's library logs it. The per-disk statistics at `Close` and
   the summary at `Disconnect` use VMware's labels, so existing log searches

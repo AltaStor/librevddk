@@ -69,10 +69,16 @@ const (
 
 	clientVersion = 11 // what the reference sends; the host answers with its own
 	minVersion    = 2  // ESXi 6.7 answers 2 (NBD-0005)
-	// Connection data, features and the resource pool need version 3 or
-	// later; to a host that answers 2 the reference sends none of them.
+	// Connection data needs version 3 or later; to a host that answers 2 the
+	// reference sends none of the three messages below.
 	modernVersion = 3
-	features      = 3
+	// Features and the resource pool request need version 9 or later.
+	// ESXi 7.0 GA answers 5 and ends the session (classic SessionComplete)
+	// on the resource pool request; the reference sends that host connection
+	// data only. 7.0.3 answers 9 and gets all three (NET-0003). Reported and
+	// diagnosed in openvddk/openvddk#1 (NBD-0032).
+	poolVersion = 9
+	features    = 3
 )
 
 // AIO frames have a 16-byte header: magic, type, payload size, operation
@@ -127,6 +133,10 @@ var (
 	// ErrConnect: no TCP connection to the host's NFC port within
 	// ConnectTimeout, or refused (NBD-0028).
 	ErrConnect = errors.New("nfc: no connection to the host")
+	// ErrSessionEnded: the host sent the classic SessionComplete message
+	// where an AIO reply was expected; it ended the session (NBD-0032,
+	// NBD-0033). Always wrapped together with ErrProtocol.
+	ErrSessionEnded = errors.New("the host ended the session")
 	// ErrStreamTLS: the host refused TLS for the NFC data stream after the
 	// authentication service's TLS worked (NBDSSL not available for this
 	// session; a certificate mismatch is ErrTLS instead).
@@ -387,8 +397,18 @@ func tlsRefusal(err error) bool {
 	return errors.As(err, &oe) && oe.Op == "remote error"
 }
 
-// handshake runs the classic messages up to the AIO session.
+// handshake runs the classic messages up to the AIO session. A failure
+// names the step and, once the host has answered it, its NFC version.
 func (c *Conn) handshake(o Options) error {
+	step := func(what string, err error) error {
+		if err == nil {
+			return nil
+		}
+		if c.Version > 0 {
+			return fmt.Errorf("nfc: handshake, %s (host NFC version %d): %w", what, c.Version, err)
+		}
+		return fmt.Errorf("nfc: handshake, %s: %w", what, err)
+	}
 	name, opName := o.Client, o.Operation
 	if name == "" {
 		name = "openvddk"
@@ -400,67 +420,72 @@ func (c *Conn) handshake(o Options) error {
 	hs := classic(msgHandshake)
 	copy(hs[4:], "PlainText")
 	if err := c.write(hs); err != nil {
-		return err
+		return step("greeting", err)
 	}
 	if err := c.write(classic(msgSessionParams)); err != nil {
-		return err
+		return step("session parameters", err)
 	}
 	if _, err := c.readClassic(msgSessionParamsReply); err != nil {
-		return err
+		return step("session parameters", err)
 	}
 	v := classic(msgVersion)
 	binary.LittleEndian.PutUint32(v[4:], clientVersion)
 	if err := c.write(v); err != nil {
-		return err
+		return step("version", err)
 	}
 	r, err := c.readClassic(msgVersion)
 	if err != nil {
-		return err
+		return step("version", err)
 	}
 	c.Version = binary.LittleEndian.Uint32(r[4:])
 	if c.Version < minVersion {
 		return fmt.Errorf("%w: host NFC version %d", ErrProtocol, c.Version)
 	}
 	modern := c.Version >= modernVersion
-	msgs := [][]byte{classic(msgAIOSession)}
+	pooled := c.Version >= poolVersion
+	var msgs [][]byte
 	if modern {
 		cd := classic(msgConnectionData)
 		binary.LittleEndian.PutUint32(cd[4:], uint32(len(name)))
 		binary.LittleEndian.PutUint32(cd[8:], uint32(len(opName)))
+		msgs = append(msgs, cd, []byte(name), []byte(opName))
+	}
+	if pooled {
 		f := classic(msgFeatures)
 		binary.LittleEndian.PutUint32(f[4:], features)
-		msgs = [][]byte{cd, []byte(name), []byte(opName), f, classic(msgAIOSession)}
+		msgs = append(msgs, f)
 	}
+	msgs = append(msgs, classic(msgAIOSession))
 	// One write per message, as the reference sends them: inside TLS each
 	// becomes its own record, and the host waits for the next message on
 	// the socket (NBDSSL stalled when several shared one record).
 	for _, m := range msgs {
 		if err := c.write(m); err != nil {
-			return err
+			return step("connection data, features and AIO session", err)
 		}
 	}
 	if _, err := c.readClassic(msgAIOSession); err != nil {
-		return err
+		return step("AIO session", err)
 	}
 	session := make([]byte, 16)
 	binary.LittleEndian.PutUint32(session[4:], o.AIOBufSize)
 	binary.LittleEndian.PutUint32(session[8:], o.AIOBufCount)
 	if _, _, err := c.call(aioOpenSession, session, nil, 16); err != nil {
-		return err
+		return step("AIO open session", err)
 	}
 	sock := make([]byte, 12)
 	binary.LittleEndian.PutUint32(sock[0:], min(o.ServerRcvBuf, MaxServerSockBuf))
 	binary.LittleEndian.PutUint32(sock[4:], min(o.ServerSndBuf, MaxServerSockBuf))
 	if _, _, err := c.call(aioSockOpts, sock, nil, 12); err != nil {
-		return err
+		return step("socket options", err)
 	}
-	if !modern {
+	if !pooled {
 		return nil
 	}
 	pool := make([]byte, 4)
 	binary.LittleEndian.PutUint32(pool, 1)
 	_, _, err = c.call(aioResPool, pool, nil, 4)
-	return err
+	return step("resource pool", err)
 }
 
 // ParseOpenReply returns the handle from an OPEN_FILE reply payload.
@@ -638,6 +663,9 @@ func ParseAIOHeader(h []byte) (typ, size, op uint32, err error) {
 		return 0, 0, 0, fmt.Errorf("%w: short header", ErrProtocol)
 	}
 	if m := binary.LittleEndian.Uint32(h[0:]); m != aioMagic {
+		if m == msgSessionComplete {
+			return 0, 0, 0, fmt.Errorf("%w: %w (classic message %d, SessionComplete) instead of answering", ErrProtocol, ErrSessionEnded, m)
+		}
 		return 0, 0, 0, fmt.Errorf("%w: bad frame magic %#x", ErrProtocol, m)
 	}
 	return binary.LittleEndian.Uint32(h[4:]), binary.LittleEndian.Uint32(h[8:]), binary.LittleEndian.Uint32(h[12:]), nil

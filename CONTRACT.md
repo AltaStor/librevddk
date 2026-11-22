@@ -1,7 +1,7 @@
 # OpenVDDK: an independent implementation of the VixDiskLib API
 ## Normative Engineering Contract
 
-**Document version:** 0.42 (2026-10-29)  
+**Document version:** 0.43 (2026-11-22)  
 **Initial compatibility target:** VMware VDDK 8.0.3, build 23950268, Linux x86_64  
 **Reference package:** `VMware-vix-disklib-8.0.3-23950268.x86_64.tar.gz`  
 **Primary implementation language:** Go, with C limited to the ABI boundary (§7)  
@@ -173,6 +173,8 @@ Revision history:
 - 0.42 — a consumer may sign in to vCenter or directly to an ESXi host;
   NBDSSL and NBD work both ways, HotAdd only through vCenter in 0.7.4
   (§95, D-0052).
+- 0.43 — the kit is the runtime kit, with a fixed-name copy and a `lib64`
+  link (§127, D-0055).
 
 ---
 
@@ -3352,6 +3354,7 @@ revision (§117).
 | D-0052 | 2026-10-29 | Direct connections to an ESXi host (standalone ESXi): the server type from `About.ApiType` (`HostAgent`); the NFC service object from `RetrieveInternalContent` on vCenter and ESXi, as the reference (NET-0005); a ticket without a host is used with the server the session was opened with, pinned to the ticket's thumbprint; PrepareForAccess and EndAccess answer 20 on ESXi, as the reference; HotAdd not used on ESXi until observed (provisional); amends D-0011 | §50, §95, §122 |
 | D-0053 | 2026-11-11 | Interface facts cited from public sources (open-vm-tools, VDDK's API reference, the programming guide, nbdkit; a few only in VMware's NAS VAAI 7.0.1 reference as posted by NetApp); the library's linking facts (SONAME, symbol versions, internal exports) read with standard tools from the distributed library and kept; reference packages and their terms recorded | §50 |
 | D-0054 | 2026-11-14 | The reference's three internal exports counted, not named, in the public tree (manifest and public ELF facts carry the count; full records private); symbol version labels kept, because programs linked against the library print a loader warning per label at every start without them | §8, §9, §50 |
+| D-0055 | 2026-11-22 | The kit is the runtime kit: archive `openvddk-runtime-<version>-<commit>.tar.gz` (named `openvddk-evalkit-…` until 0.7.4, a name that read like a trial version), the same bytes also as `openvddk-runtime.tar.gz` for a fixed "latest" link, `make runtime` with `make evalkit` kept as the old name; the kit carries a `lib64` link to `lib`, the layout nbdkit's VDDK plugin expects under `libdir` | §127 |
 | D-0038 | 2026-10-10 | `include/vixDiskLib.h`, a source-compatibility header written by this project and generated from the library's error table: the ABI header plus every `VIX_E_*` code, `VIX_SUCCEEDED`/`VIX_FAILED`, the hardware-version enum and the basic type names | §10, §50 |
 | D-0037 | 2026-10-08 | NBDSSL/NBD development on `main` from 0.7.0; HotAdd acceptance, fixes and its release candidate on branch `release/hotadd` (from `008fd06`) | §118, §122, §128 |
 | D-0036 | 2026-10-08 | QueryAllocatedBlocks over HotAdd asks the host over NFC (vCenter ticket NfcGetVmFiles, the host's backup-NFC address when selected, authd TLS pinned to the ticket's thumbprint, one session per query); vCenter's map, then the whole range, as fallbacks | §35, §50, §98, §109, §122 |
@@ -3696,16 +3699,18 @@ the §120 records.
 
 # 127. Binary Kit
 
-Pre-release builds are packaged as a binary kit (`make evalkit`). A kit is
-not a release; §84 governs releases.
+Builds are packaged as a binary kit, the runtime kit (`make runtime`,
+D-0055). A kit is not a release; §84 governs releases.
 
 ## 127.1 Contents
 
-A kit is one archive, `openvddk-evalkit-<version>-<commit>.tar.gz`. It
-SHALL contain:
+A kit is one archive, `openvddk-runtime-<version>-<commit>.tar.gz` (named
+`openvddk-evalkit-…` until 0.7.4, D-0055), built also as
+`openvddk-runtime.tar.gz` with the same bytes. It SHALL contain:
 
 ```text
 lib/libvixDiskLib.so.8.0.3          the library (and the .so.8 / .so links)
+lib64                               a link to lib, the layout nbdkit's VDDK plugin expects (D-0055)
 include/openvix/vixdisklib_abi.h    the project's own declarations (D-0005)
 examples/                           source of one consumer and its build line
 bin/openvddk-admin                  the administrative program of §104/§105 (D-0029)
@@ -3749,11 +3754,11 @@ environment.
 
 ## 127.4 Build and gate
 
-`make evalkit` builds the kit in the pinned container from a committed
-tree. The tree SHALL have passed `make check` and `make repro`, and the
-kit's library SHALL be byte-identical to the reproducible build. The gate
-also compiles the example against the kit's header alone and checks that
-the archive contains nothing outside 127.1.
+`make runtime` (old name `make evalkit`) builds the kit in the pinned
+container from a committed tree. The tree SHALL have passed `make check` and
+`make repro`, and the kit's library SHALL be byte-identical to the
+reproducible build. The gate also compiles the example against the kit's
+header alone and checks that the archive contains nothing outside 127.1.
 
 ## 127.5 Distribution
 

@@ -64,7 +64,7 @@ PrepareForAccess and EndAccess answer 20 there, as VMware's library does.
 | Odd sizes (not a multiple of 1 MiB) and over 2 TiB (3 TiB) | verified (A9) |
 | Virtual-mode raw device mapping | verified, all transports (HOTADD-0051, NBD-0012) |
 | Independent disks, physical-mode RDMs | refused as VMware refuses them: not a disk of the VM, 13 (1 with `nbd` alone) |
-| Encrypted VMs | refused (13); comparison with VMware open (A11, needs a key provider the lab hosts could not use) |
+| Encrypted VMs (vSphere 7.0.3, VM Encryption) | NBDSSL: verified, the same data as VMware's library; NBD: from 0.7.5 read over an encrypted NFC stream, as VMware's library does, while the transport is reported as NBD (0.7.4 was refused with 13; NBD-0034); HotAdd through a proxy that is not itself encrypted: refused with 13 by both libraries |
 
 ## Applications
 

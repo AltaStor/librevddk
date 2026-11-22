@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"math"
 	"strconv"
+	"sync/atomic"
 	"time"
 
 	"github.com/openvddk/openvddk/internal/config"
@@ -35,6 +36,7 @@ type nbdDisk struct {
 	more   []nbdSession // the further sessions, for reads only
 	reads  *nfc.Spread  // every session
 	ra     *readahead.Reader
+	ended  atomic.Bool // the host-ended-session note has been logged
 }
 
 // nbdSession is one further NFC session with the disk open in it.
@@ -212,7 +214,11 @@ func openNBD(ctx context.Context, c *Connection, sess *vsphere.Session, det vsph
 	st := nbdConfig(lifecycle.Global.Config())
 	// Of the compression flags only skipz changes the reads, as the reference
 	// does it (NET-0004); zlib and fastlz are accepted and read whole.
-	opts := nfc.Options{SSL: mode == transport.NBDSSL, Operation: "nbdmode", InFlight: st.inFlight, SkipZeros: flags&FlagSkipZeros != 0,
+	ssl := nbdStreamEncrypted(mode, det.Encrypted)
+	if ssl && mode == transport.NBD {
+		logx.OpenEx.NFC().Infof("%s: the disk is encrypted, so the host accepts it only over an encrypted NFC stream; NBD was asked for, and the stream is encrypted as with NBDSSL (VMware's library does the same and also reports NBD)", path)
+	}
+	opts := nfc.Options{SSL: ssl, Operation: "nbdmode", InFlight: st.inFlight, SkipZeros: flags&FlagSkipZeros != 0,
 		AIOBufSize: st.aioBuf, AIOBufCount: st.aioCount, ReadTimeout: st.readTimeout,
 		SndBuf: st.sndBuf, RcvBuf: st.rcvBuf, ServerSndBuf: st.serverSndBuf, ServerRcvBuf: st.serverRcvBuf}
 	if opts.SSL && !nfc.AESHardware() {
@@ -285,6 +291,15 @@ func openNBD(ctx context.Context, c *Connection, sess *vsphere.Session, det vsph
 		readOnly: true, opened: time.Now(), stats: readStats{nextMark: progressStep}}, nil
 }
 
+// nbdStreamEncrypted reports whether the NFC stream of a disk opened over
+// mode is encrypted: always for NBDSSL, and for NBD when the disk is
+// encrypted (its backing has a key ID). The host refuses a clear-text open
+// of an encrypted disk, and the reference then opens it over an encrypted
+// stream while it reports the transport as NBD (NBD-0034).
+func nbdStreamEncrypted(mode transport.Mode, encryptedDisk bool) bool {
+	return mode == transport.NBDSSL || (mode == transport.NBD && encryptedDisk)
+}
+
 // openNBDSession opens the disk in one more NFC session: a new one-time
 // ticket, a session with the first session's options (so with the cipher
 // list it ended up with), the disk opened by path.
@@ -329,10 +344,35 @@ func nbdOpenCode(err error) vix.Code {
 // nbdReadCode is the code of a failed read over NBD or NBDSSL. When the NFC
 // connection is lost (reset, no reply within the timeout, a broken stream)
 // the reference answers VIX_E_HOST_NETWORK_CONN_REFUSED (14009) for every
-// case tested (NBD-0002); a refusal by the host keeps its own mapping.
+// case tested (NBD-0002); a refusal by the host keeps its own mapping. When
+// the host itself ends the session during the reads (SessionComplete, seen
+// when its NFC memory was full), the reference answers VIX_E_FAIL (1), and
+// so does this library (NBD-0033).
 func nbdReadCode(err error) vix.Code {
-	if errors.Is(err, nfc.ErrRefused) {
+	switch {
+	case errors.Is(err, nfc.ErrRefused):
 		return vix.ToCode(err)
+	case errors.Is(err, nfc.ErrSessionEnded):
+		return vix.EFail
 	}
 	return vix.EHostConnRefused
+}
+
+// sessionEndedNote is logged once per disk when the host ends an NFC session
+// during the reads (NBD-0033): the reference's message is generic, so this
+// one names the likely cause and what to do.
+const sessionEndedNote = "The ESXi host ended the NFC session for this disk: it accepted no more transfers. " +
+	"This usually means the host's NFC memory is full (too many sessions at once, or 2 MiB buffers). " +
+	"Run fewer disks at once, use fewer OpenVDDK.nbd.sessions or the default buffers, or raise the host's " +
+	"NFC memory (VMware KB 389223). Transfers already running are not affected."
+
+// noteSessionEnded logs sessionEndedNote the first time a read of the disk
+// fails because the host ended the session.
+func (n *nbdDisk) noteSessionEnded(err error) {
+	if n == nil || !errors.Is(err, nfc.ErrSessionEnded) {
+		return
+	}
+	if n.ended.CompareAndSwap(false, true) {
+		logx.Read.NFC().Warnf("%s", sessionEndedNote)
+	}
 }

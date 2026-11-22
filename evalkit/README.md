@@ -1,4 +1,4 @@
-# OpenVDDK binary kit
+# OpenVDDK runtime kit
 
 OpenVDDK is an independent implementation of the VixDiskLib 8.0.3 interface:
 a drop-in replacement for `libvixDiskLib.so.8.0.3`, written from scratch
@@ -6,15 +6,17 @@ using only public documentation and black-box testing, with no VMware code
 inside. An application that loads VMware's library can load this one
 instead, without recompiling.
 
-This kit is the binary kit: the library, the administrative program, the
-headers, an example and this user guide. It is shipped with `LICENSE` (the
-Apache License 2.0), `NOTICE` and `THIRD-PARTY-NOTICES`.
+This kit is the runtime kit (named `openvddk-evalkit-…` until 0.7.4): the
+library, the administrative program, the headers, an example and this user
+guide. It is shipped with `LICENSE` (the Apache License 2.0), `NOTICE` and
+`THIRD-PARTY-NOTICES`.
 
 ## What is in the kit
 
 | Path | What it is |
 |---|---|
 | `lib/libvixDiskLib.so.8.0.3` | the library, with the `libvixDiskLib.so.8` and `libvixDiskLib.so` links |
+| `lib64` | a link to `lib`, so the kit's directory works as nbdkit's `libdir` |
 | `include/openvix/vixdisklib_abi.h` | our own declarations of the VixDiskLib C interface, for programs that compile against it |
 | `include/vixDiskLib.h` | for existing programs written against VixDiskLib: `#include "vixDiskLib.h"` with `-I<kit>/include` gives them the declarations above plus the `VIX_E_*` error codes, `VIX_SUCCEEDED`/`VIX_FAILED`, the hardware-version constants and the basic type names (`Bool`, `uint32`, …). Define `OPENVIX_NO_BASIC_TYPES` if another header already provides those type names |
 | `examples/` | `read-disk.c`, a small consumer that reads one disk over HotAdd, and a Makefile |
@@ -112,12 +114,13 @@ Two ways, both without recompiling the application:
    the kit's directory as the library directory:
 
    ```text
-   nbdkit -r vddk libdir=/opt/openvddk-evalkit ...
+   nbdkit -r vddk libdir=/opt/openvddk-runtime ...
    ```
 
-   The plugin looks for `lib64/libvixDiskLib.so.8` under `libdir`, so
-   either make a `lib64` link to the kit's `lib`, or copy the library and
-   its links into `<libdir>/lib64/`. Open read-only (`-r`, or
+   The plugin looks for `lib64/libvixDiskLib.so.8` under `libdir`; the
+   kit's `lib64` link to `lib` gives it that. If your copy of the kit lost
+   the link (some copy tools drop links), make it again in the kit's
+   directory with `ln -s lib lib64`. Open read-only (`-r`, or
    `readonly=true`): the library does not write, and without it `Open`
    fails with error 6. virt-v2v passes `-r` itself.
 2. **Swap the file in place.** Keep a copy of VMware's library, then

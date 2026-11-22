@@ -17,6 +17,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
 	"math/big"
 	"net"
@@ -44,6 +45,9 @@ type fakeHost struct {
 	reads      int               // read requests received
 	sessionTok string            // the ticket's session ID ("token-1" when empty)
 	esxi67     bool              // behave as ESXi 6.7 (NBD-0005): no SHA-256 in the greeting, NFC version 2
+	version    uint32            // NFC version to answer (0: 9, or 2 with esxi67)
+	endOnPool  bool              // end the session on the resource pool request, as ESXi 7.0 GA does (openvddk/openvddk#1)
+	gotFeature bool              // a features message arrived
 
 	authTLS   func(*tls.Config) // adjusts the authentication service's TLS (nil: Go's defaults)
 	streamTLS func(*tls.Config) // adjusts the NFC stream's TLS
@@ -244,14 +248,17 @@ func (f *fakeHost) session(c net.Conn) error {
 	if _, err := next(msgVersion); err != nil {
 		return err
 	}
-	v := classic(msgVersion)
-	if f.esxi67 {
-		binary.LittleEndian.PutUint32(v[4:], 2)
-	} else {
-		binary.LittleEndian.PutUint32(v[4:], 9)
+	ver := f.version
+	if ver == 0 {
+		ver = 9
+		if f.esxi67 {
+			ver = 2
+		}
 	}
+	v := classic(msgVersion)
+	binary.LittleEndian.PutUint32(v[4:], ver)
 	c.Write(v)
-	if !f.esxi67 {
+	if ver >= 3 {
 		cd, err := next(msgConnectionData)
 		if err != nil {
 			return err
@@ -262,9 +269,12 @@ func (f *fakeHost) session(c net.Conn) error {
 			return err
 		}
 		f.gotName = string(names[:nl])
+	}
+	if ver >= 9 {
 		if _, err := next(msgFeatures); err != nil {
 			return err
 		}
+		f.gotFeature = true
 	}
 	if _, err := next(msgAIOSession); err != nil {
 		return err
@@ -299,8 +309,12 @@ func (f *fakeHost) session(c net.Conn) error {
 			f.gotSockOpts = append([]byte(nil), p...)
 			reply(typ, make([]byte, 12), nil)
 		case aioResPool:
-			if f.esxi67 {
-				return errors.New("resource pool request to a version 2 host")
+			if f.endOnPool {
+				c.Write(classic(msgSessionComplete))
+				return nil
+			}
+			if ver < 9 {
+				return fmt.Errorf("resource pool request to a version %d host", ver)
 			}
 			reply(typ, make([]byte, 4), nil)
 		case aioOpenFile:
@@ -439,6 +453,81 @@ func (f *fakeHost) sessionID() string {
 		return "token-1"
 	}
 	return f.sessionTok
+}
+
+// ESXi 7.0 GA answers NFC version 5 and ends the session on the resource
+// pool request (openvddk/openvddk#1, NBD-0032). From version 3 to 8 the
+// session gets connection data, but no
+// features and no resource pool request, as the reference sends that host.
+func TestNFCVersion5GetsNoFeaturesOrResourcePool(t *testing.T) {
+	f := newFakeHost(t)
+	f.version = 5
+	f.endOnPool = true
+	tk, addr, done := startFake(t, f)
+	c, err := Dial(context.Background(), addr, tk, Options{Timeout: 10 * time.Second, Operation: "nbdmode"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Version != 5 {
+		t.Fatalf("version %d", c.Version)
+	}
+	if f.gotName == "" {
+		t.Fatal("no connection data sent to a version 5 host")
+	}
+	if f.gotFeature {
+		t.Fatal("features sent to a version 5 host")
+	}
+	h, err := c.OpenDisk("[ds] vm/vm.vmdk")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := c.CloseDisk(h); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A host that ends the session during the handshake: the error names the
+// step, the host's NFC version and the host's SessionComplete message,
+// instead of only "bad frame magic 0x4".
+func TestHandshakeErrorNamesStepAndVersion(t *testing.T) {
+	f := newFakeHost(t)
+	f.endOnPool = true // version 9: the resource pool request is sent, the host ends the session
+	tk, addr, _ := startFake(t, f)
+	_, err := Dial(context.Background(), addr, tk, Options{Timeout: 10 * time.Second, Operation: "nbdmode"})
+	if err == nil {
+		t.Fatal("handshake succeeded")
+	}
+	if !errors.Is(err, ErrProtocol) {
+		t.Fatalf("not a protocol error: %v", err)
+	}
+	for _, want := range []string{"resource pool", "host NFC version 9", "SessionComplete"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error %q does not name %q", err, want)
+		}
+	}
+}
+
+// A SessionComplete where an AIO reply was expected is the host ending the
+// session: ErrSessionEnded and ErrProtocol both match (NBD-0033); any other
+// bad magic is ErrProtocol only.
+func TestParseAIOHeaderSessionComplete(t *testing.T) {
+	h := make([]byte, aioHeaderSize)
+	binary.LittleEndian.PutUint32(h, msgSessionComplete)
+	_, _, _, err := ParseAIOHeader(h)
+	if !errors.Is(err, ErrSessionEnded) || !errors.Is(err, ErrProtocol) || !strings.Contains(err.Error(), "SessionComplete") {
+		t.Fatalf("SessionComplete: %v", err)
+	}
+	binary.LittleEndian.PutUint32(h, 7)
+	_, _, _, err = ParseAIOHeader(h)
+	if errors.Is(err, ErrSessionEnded) || !errors.Is(err, ErrProtocol) {
+		t.Fatalf("magic 7: %v", err)
+	}
 }
 
 // A session with ESXi 6.7 as the reference holds it (NBD-0005): vCenter 6.7
