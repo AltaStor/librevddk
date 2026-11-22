@@ -25,10 +25,11 @@ learned is recorded in [docs/CLEAN-ROOM.md](docs/CLEAN-ROOM.md),
 
 ## Status
 
-This is the source of **OpenVDDK 0.7.4** (released 2026-10-29; release
-notes: [docs/RELEASE-NOTES-0.7.4.md](docs/RELEASE-NOTES-0.7.4.md)).
+This is the source of **OpenVDDK 0.7.5** (released 2026-11-22; release
+notes: [docs/RELEASE-NOTES-0.7.5.md](docs/RELEASE-NOTES-0.7.5.md)). The files
+of each GitHub release are built from that release's tag in this repository.
 
-A library built from this tree has a different file hash from the 0.7.4
+A library built from the 0.7.4 source has a different file hash from the 0.7.4
 library binary distributed before the source was published (SHA-256
 `785883f666cf2d7ad2b42df0d66325a5021f2338a7af6ca1a1ccc25ff5f806e1`): the
 Go module path changed to `github.com/openvddk/openvddk`, and the library
@@ -45,9 +46,6 @@ problems" below).
   vCenter and by signing in to an ESXi host directly, including a
   standalone host without vCenter
   ([docs/COMPATIBILITY-MATRIX.md](docs/COMPATIBILITY-MATRIX.md)).
-  The README inside the 0.7.4 download predates the 9.1.1 tests and lists
-  6.7, 7.0 and 8.0. Released files are not changed, so their published
-  checksums stay valid.
 - Transports HotAdd, NBDSSL and NBD, listed as `hotadd:nbdssl:nbd`
   (D-0039). HotAdd is used through vCenter.
 - Linux x86-64 with glibc 2.28 or newer.

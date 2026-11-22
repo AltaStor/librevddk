@@ -16,10 +16,11 @@
 #   make admin         build/bin/openvddk-admin (recovery utility, diagnostic bundle)
 #   make sbom          build/sbom.spdx.json: SPDX 2.3 SBOM of the library and
 #                      openvddk-admin (fails on a module without a reviewed license)
-#   make evalkit
-#                      binary kit: library, admin program, headers, example, guide (CONTRACT.md §127)
+#   make runtime
+#                      runtime kit: library, admin program, headers, example, guide (§127);
+#                      make evalkit is its old name
 #   make devkit
-#                      developer kit: the binary kit plus guide, examples and
+#                      developer kit: the runtime kit plus guide, examples and
 #                      pkg-config file (CONTRACT.md §129)
 
 SHELL       := /bin/bash
@@ -30,7 +31,7 @@ SONAME      := libvixDiskLib.so.8.0.3
 OUT         ?= build
 LIBDIR      := $(OUT)/lib
 BINDIR      := $(OUT)/bin
-VERSION     ?= 0.7.4
+VERSION     ?= 0.7.5
 COMMIT      ?= $(shell git rev-parse --short=12 HEAD 2>/dev/null || echo uncommitted)$(shell git diff --quiet HEAD 2>/dev/null || echo -dirty)
 
 export GOAMD64     := v1
@@ -51,7 +52,7 @@ LIB_SOURCES := $(shell find cabi internal include -type f) go.mod
 
 .PHONY: all check devkit lib vet fmt-check test race fuzz-smoke fuzz admin trace abi-gate conformance fork-test cabi-guard FORCE \
         differential reference-transcript ref-elf-facts layout ledger \
-        ledger-check repro env-report clean vixcopy consumer-selftest evalkit compat-header compat-build sbom headers
+        ledger-check repro env-report clean vixcopy consumer-selftest runtime evalkit compat-header compat-build sbom headers
 
 all: lib
 
@@ -300,11 +301,13 @@ repro:
 	cmp $(OUT)/repro-a/lib/$(SONAME) $(OUT)/repro-b/lib/$(SONAME)
 	@echo "repro: identical $$(sha256sum $(OUT)/repro-a/lib/$(SONAME) | cut -d' ' -f1)"
 
-# ---- binary kit (§127) -------------------------------------------------------
+# ---- runtime kit (§127) ------------------------------------------------------
 
 
-evalkit: check repro env-report admin
+runtime: check repro env-report admin
 	tools/evalkit.sh $(OUT) $(VERSION) $(COMMIT)
+
+evalkit: runtime
 
 # ---- developer kit (§129) ----------------------------------------------------
 

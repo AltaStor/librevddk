@@ -2,10 +2,11 @@
 # Copyright 2026 Andrija Panic and the OpenVDDK contributors
 # SPDX-License-Identifier: Apache-2.0
 #
-# Assembles and checks the binary kit (CONTRACT.md §127): the library, the
-# administrative program, the headers, the example, the user guide and the
-# licence files. Called by `make evalkit` inside the pinned container, after
-# `make check` and `make repro`.
+# Assembles and checks the runtime kit (CONTRACT.md §127, D-0055; the archive
+# was named openvddk-evalkit-... until 0.7.4): the library, the administrative program, the
+# headers, the example, the user guide and the licence files. Called by
+# `make runtime` (or its old name `make evalkit`) inside the pinned
+# container, after `make check` and `make repro`.
 #
 #   tools/evalkit.sh <out-dir> <version> <commit>
 set -euo pipefail
@@ -26,20 +27,23 @@ lib_a=$out/repro-a/lib/$soname lib_b=$out/repro-b/lib/$soname
 [ -f "$lib_a" ] && [ -f "$lib_b" ] || die "run make repro first"
 cmp -s "$lib_a" "$lib_b" || die "the two reproducible builds differ"
 
-name=openvddk-evalkit-$version-$commit
+name=openvddk-runtime-$version-$commit
 # Staged on a Linux filesystem: the file modes set below must hold (a bind
 # mount of a Windows drive reports every file as 0777).
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 stage=$work/$name
-rm -rf "$out/evalkit"
-mkdir -p "$out/evalkit" "$stage/lib" "$stage/bin" "$stage/include/openvix" "$stage/examples"
+rm -rf "$out/runtime"
+mkdir -p "$out/runtime" "$stage/lib" "$stage/bin" "$stage/include/openvix" "$stage/examples"
 admin=$out/bin/openvddk-admin
 [ -x "$admin" ] || die "run make admin first"
 
 install -m 0755 "$lib_a" "$stage/lib/$soname"
 ln -s "$soname" "$stage/lib/libvixDiskLib.so.8"
 ln -s libvixDiskLib.so.8 "$stage/lib/libvixDiskLib.so"
+# nbdkit's VDDK plugin (and so virt-v2v) looks for lib64/ under its libdir;
+# with this link the kit's own directory works as libdir (D-0055).
+ln -s lib "$stage/lib64"
 install -m 0644 include/openvix/vixdisklib_abi.h "$stage/include/openvix/"
 install -m 0644 include/vixDiskLib.h "$stage/include/"
 install -m 0644 evalkit/examples/read-disk.c evalkit/examples/Makefile "$stage/examples/"
@@ -50,7 +54,7 @@ install -m 0644 LICENSE NOTICE THIRD-PARTY-NOTICES "$stage/"
 
 epoch=$(git log -1 --format=%ct 2>/dev/null || echo 0)
 {
-  echo "OpenVDDK binary kit $version, commit $commit"
+  echo "OpenVDDK runtime kit $version, commit $commit"
   echo "library: $soname, SHA-256 $(sha256sum "$lib_a" | cut -d' ' -f1)"
   echo "commit time: $(date -u -d "@$epoch" '+%Y-%m-%d %H:%M:%S UTC')"
   echo
@@ -72,7 +76,7 @@ chmod 0644 "$stage/SBOM.spdx.json"
 expected=$(printf '%s\n' ADMIN.md BUILD.txt KNOWN-DIFFERENCES.md LICENSE NOTICE README.md SBOM.spdx.json \
   THIRD-PARTY-NOTICES bin/openvddk-admin \
   examples/Makefile examples/read-disk.c include/openvix/vixdisklib_abi.h include/vixDiskLib.h \
-  lib/libvixDiskLib.so lib/libvixDiskLib.so.8 "lib/$soname" | sort)
+  lib/libvixDiskLib.so lib/libvixDiskLib.so.8 "lib/$soname" lib64 | sort)
 actual=$(cd "$stage" && find . \( -type f -o -type l \) | sed 's|^\./||' | sort)
 [ "$expected" = "$actual" ] || { diff <(echo "$expected") <(echo "$actual") >&2 || true; die "unexpected kit contents"; }
 
@@ -105,6 +109,8 @@ done
 chmod 0755 "$stage" "$stage/lib" "$stage/bin" "$stage/include" "$stage/include/openvix" "$stage/examples"
 chmod 0644 "$stage/SHA256SUMS" "$stage/BUILD.txt"
 tar --sort=name --owner=0 --group=0 --numeric-owner --mtime="@$epoch" \
-  -C "$work" -cf - "$name" | gzip -n > "$out/evalkit/$name.tar.gz"
-echo "evalkit: $out/evalkit/$name.tar.gz"
-sha256sum "$out/evalkit/$name.tar.gz"
+  -C "$work" -cf - "$name" | gzip -n > "$out/runtime/$name.tar.gz"
+# The same bytes under a fixed name, for a "latest" download link (D-0055).
+cp "$out/runtime/$name.tar.gz" "$out/runtime/openvddk-runtime.tar.gz"
+echo "runtime kit: $out/runtime/$name.tar.gz"
+(cd "$out/runtime" && sha256sum ./*.tar.gz)

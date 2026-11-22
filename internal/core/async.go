@@ -125,6 +125,7 @@ func (d *Disk) finishAsync(start, count uint64, t time.Time, err error, done fun
 		code := nbdReadCode(err)
 		verr := vix.New(code, "ReadAsync", err)
 		logx.Read.NFC().Warnf("ReadAsync %d sectors at %d of %s failed: error %d (%s): %v", count, start, d.path, int(code), code.Text(), err)
+		d.nbd.noteSessionEnded(err)
 		d.conn.noteFailure(logx.Read, verr)
 		done(verr)
 		return

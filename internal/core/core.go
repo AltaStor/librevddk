@@ -257,13 +257,41 @@ func namesSAN(skipped []string) bool {
 // errNotVMwareVM: HotAdd cannot work because this machine is not a VMware
 // virtual machine; Open goes on to the next listed transport, and when
 // none is left the reference answers VIX_E_FAIL (NBD-0021).
-var errNotVMwareVM = errors.New("hotadd needs a VMware virtual machine; this machine is not one")
+var errNotVMwareVM = errors.New("HotAdd works only from a VMware virtual machine; this machine is not one")
 
 // errHotAddNeedsVCenter: on a connection to an ESXi host (no vCenter) HotAdd
-// is not used in this version; Open goes on to the next listed transport,
-// and when none is left it fails with VIX_E_FILE_ACCESS_ERROR, the answer
-// for "no transport for this disk" (D-0052).
-var errHotAddNeedsVCenter = fmt.Errorf("%w: HotAdd is used only through vCenter in this version; this connection is to an ESXi host (D-0052)", hotadd.ErrUnavailable)
+// is not used; Open goes on to the next listed transport, and when none is
+// left it fails with VIX_E_FILE_ACCESS_ERROR, the answer for "no transport
+// for this disk" (D-0052). The text promises nothing about later versions.
+var errHotAddNeedsVCenter error = hotAddSkip("HotAdd is available only through vCenter, not on a direct connection to an ESXi host")
+
+// hotAddSkip is a reason HotAdd is not used that counts as
+// hotadd.ErrUnavailable (Open goes on, 13 when no transport is left) while
+// its text stays one plain sentence for the log.
+type hotAddSkip string
+
+func (e hotAddSkip) Error() string        { return string(e) }
+func (e hotAddSkip) Is(target error) bool { return target == hotadd.ErrUnavailable }
+
+// logTransportFailure logs why a listed transport was not used for a disk;
+// next holds the transports listed after m. HotAdd skipped because this
+// machine is not a VMware virtual machine, or because the connection is to
+// an ESXi host, is a quiet note on the log callback naming the next
+// transport: the reference says nothing then, and nbdkit prints warnings as
+// errors (a skipped HotAdd under virt-v2v's default list showed as two error
+// lines per disk). As the last listed transport it stays a warning; every
+// other failure is a warning.
+func logTransportFailure(m transport.Mode, err error, next []transport.Mode) {
+	skip := m == transport.HotAdd && (errors.Is(err, errNotVMwareVM) || errors.Is(err, errHotAddNeedsVCenter))
+	switch {
+	case skip && len(next) > 0:
+		logx.OpenEx.Infof("%v. Trying the next listed transport: %s.", err, next[0])
+	case skip:
+		logx.OpenEx.Warnf("%v. No other transport is listed.", err)
+	default:
+		logx.OpenEx.Warnf("transport %s: %v", m, err)
+	}
+}
 
 // onVMwareVM reports whether this machine is a VMware virtual machine, from
 // the firmware's system vendor (DMI). A variable for tests.
@@ -580,7 +608,7 @@ func open(ch uint64, path string, flags uint32) (uint64, error) {
 	}
 
 	var lastErr error
-	for _, m := range c.modes {
+	for i, m := range c.modes {
 		var d *Disk
 		switch m {
 		case transport.HotAdd:
@@ -619,7 +647,7 @@ func open(ch uint64, path string, flags uint32) (uint64, error) {
 			}
 			return h, nil
 		}
-		logx.OpenEx.Warnf("transport %s: %v", m, err)
+		logTransportFailure(m, err, c.modes[i+1:])
 		lastErr = err
 		if m == transport.NBDSSL && nbdsslToNBD(c.listed, c.modes, err) {
 			logx.OpenEx.Warnf("%s: NBDSSL is not available for this session; the transport list allows NBD, which carries the data without encryption", path)
@@ -911,6 +939,7 @@ func Read(h uint64, start, count uint64, buf unsafe.Pointer) error {
 		verr := vix.New(code, "Read", err)
 		if d.nbd != nil {
 			logx.Read.NFC().Warnf("Read %d sectors at %d of %s failed: error %d (%s): %v", count, start, d.path, int(code), code.Text(), err)
+			d.nbd.noteSessionEnded(err)
 		} else {
 			logx.Read.Warnf("Read %d sectors at %d of %s failed: error %d (%s): %v", count, start, d.path, int(code), code.Text(), err)
 		}

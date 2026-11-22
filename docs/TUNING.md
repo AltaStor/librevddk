@@ -33,7 +33,7 @@ Point virt-v2v at the OpenVDDK kit and add the configuration file:
 ```
 virt-v2v -ic 'vpx://user@vcenter/Datacenter/cluster/host?no_verify=1' \
   -it vddk \
-  -io vddk-libdir=/opt/openvddk-evalkit \
+  -io vddk-libdir=/opt/openvddk-runtime \
   -io vddk-thumbprint=XX:XX:...:XX \
   -io vddk-transports=nbdssl \
   -io vddk-config=/etc/openvddk/openvddk.conf \
@@ -47,7 +47,7 @@ Add `config=` to the parameters you already pass to nbdkit's VDDK plugin (server
 snapshot and the disk, as the plugin's manual describes them):
 
 ```
-nbdkit -r vddk libdir=/opt/openvddk-evalkit transports=nbdssl \
+nbdkit -r vddk libdir=/opt/openvddk-runtime transports=nbdssl \
   config=/etc/openvddk/openvddk.conf \
   ...your usual connection and disk parameters...
 ```

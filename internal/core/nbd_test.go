@@ -11,6 +11,7 @@ import (
 
 	"github.com/openvddk/openvddk/internal/config"
 	"github.com/openvddk/openvddk/internal/nfc"
+	"github.com/openvddk/openvddk/internal/transport"
 	"github.com/openvddk/openvddk/internal/vix"
 )
 
@@ -80,5 +81,62 @@ func TestNBDOpenCodeNoConnection(t *testing.T) {
 	err := fmt.Errorf("NFC session with h: %w", fmt.Errorf("nfc: connect h:902: %w: %w", nfc.ErrConnect, errors.New("i/o timeout")))
 	if c := nbdOpenCode(err); c != vix.EHostConnRefused {
 		t.Fatalf("code %d, want 14009", int(c))
+	}
+}
+
+// A read whose session the host ended (SessionComplete, seen when its NFC
+// memory was full) is 1, as the reference answers; a lost connection stays
+// 14009 and a refusal keeps its own mapping (NBD-0002, NBD-0033). The note
+// naming the likely cause is logged once per disk.
+func TestNBDReadCodeSessionEnded(t *testing.T) {
+	_, _, _, perr := nfc.ParseAIOHeader([]byte{4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0})
+	if perr == nil {
+		t.Fatal("SessionComplete parsed as an AIO header")
+	}
+	ended := fmt.Errorf("read piece 0+1048576: %w", perr)
+	for _, c := range []struct {
+		err  error
+		want vix.Code
+	}{
+		{ended, vix.EFail},
+		{fmt.Errorf("nfc: reply header: %w", errors.New("read tcp: i/o timeout")), vix.EHostConnRefused},
+		{fmt.Errorf("%w: bad frame magic 0x7", nfc.ErrProtocol), vix.EHostConnRefused},
+	} {
+		if got := nbdReadCode(c.err); got != c.want {
+			t.Errorf("nbdReadCode(%v) = %d, want %d", c.err, int(got), int(c.want))
+		}
+	}
+	n := &nbdDisk{}
+	n.noteSessionEnded(errors.New("other"))
+	if n.ended.Load() {
+		t.Fatal("note logged for another error")
+	}
+	n.noteSessionEnded(ended)
+	n.noteSessionEnded(ended)
+	if !n.ended.Load() {
+		t.Fatal("note not logged")
+	}
+	var none *nbdDisk
+	none.noteSessionEnded(ended) // no disk: nothing to log, no panic
+}
+
+// An encrypted disk asked over NBD is read over an encrypted NFC stream, as
+// the reference does while it reports NBD; an unencrypted disk over NBD
+// stays clear text, and NBDSSL is always encrypted (NBD-0034).
+func TestNBDStreamEncrypted(t *testing.T) {
+	for _, c := range []struct {
+		mode      transport.Mode
+		encrypted bool
+		want      bool
+	}{
+		{transport.NBD, false, false},
+		{transport.NBD, true, true},
+		{transport.NBDSSL, false, true},
+		{transport.NBDSSL, true, true},
+		{transport.HotAdd, true, false},
+	} {
+		if got := nbdStreamEncrypted(c.mode, c.encrypted); got != c.want {
+			t.Errorf("nbdStreamEncrypted(%s, %v) = %v, want %v", c.mode, c.encrypted, got, c.want)
+		}
 	}
 }

@@ -108,6 +108,10 @@ it. Performance figures are not published.
 | [NBD-0029](NBD-0029-vddk803-rechecks-on-67.md) | VDDK 8.0.3 rechecks on vSphere 6.7 (D-0046) |
 | [NBD-0030](NBD-0030-release-checks-0.7.3-rc1.md) | Release checks of 0.7.3-rc1 |
 | [NBD-0031](NBD-0031-release-checks-0.7.4-rc1.md) | Release checks of 0.7.4-rc1: standalone ESXi, and the regression through vCenter |
+| [NBD-0032](NBD-0032-esxi70ga-nfc-version-5.md) | ESXi 7.0 GA answers NFC version 5 and ends the session (SessionComplete) on the resource pool request; the reference sends that host connection data only. From 0.7.5 features and the resource pool request go only to version 9 and later. Reported and diagnosed by AdminSys (ProxCenter), openvddk/openvddk#1 |
+| [NBD-0033](NBD-0033-host-ends-session-nfc-memory.md) | The host ends an NFC session during the reads when its NFC memory is full; the reference answers 1, 0.7.4 answered 14009. From 0.7.5 the read returns 1 and one log line names the likely cause |
+| [NBD-0034](NBD-0034-encrypted-vm-over-nbd.md) | An encrypted VM asked over NBD: the reference encrypts the NFC stream and reports NBD; from 0.7.5 OpenVDDK does the same (0.7.4 was refused with 13) |
+| [NBD-0035](NBD-0035-release-checks-0.7.5-rc1.md) | Release checks of 0.7.5-rc1 on vSphere 6.7, 7.0, 8.0.3 and 9.1.1 |
 | [NET-0001](NET-0001-lab-captures-and-access-calls.md) | Lab network captures, and the basis of the access-control calls |
 | [NET-0002](NET-0002-allocation-query-over-nfc.md) | The reference's allocation query over NFC |
 | [NET-0003](NET-0003-nbd-read-over-nfc.md) | The reference's NBD read: descriptor keys and data over NFC |
