@@ -10,6 +10,8 @@
   matched case-insensitively. Unknown `OpenVix.*` keys produce a warning.
 - Environment variables use the `OPENVIX_` prefix. They are developer and
   test overrides only; production behavior never depends on them.
+  *Amended by D-A001 (2026-11-24): the write switches
+  `OPENVIX_HOTADD_WRITE` and `OPENVIX_NBD_WRITE` are read in production.*
 - Log lines delivered to consumer callbacks start with `OpenVix: `. The first
   line after initialization identifies the implementation and its claimed
   compatibility generation. *Amended by D-0021 (2026-10-04): lines start

@@ -134,9 +134,11 @@ HOTADD-0001 to HOTADD-0003.
   by the owning process marks a live transaction.
   - Open identifies the proxy, recovers orphans, chooses a slot under the
     cross-process slot lock, then attaches the snapshot point's disk as
-    `independent_nonpersistent`.
+    `independent_nonpersistent`, or, for a disk opened for writing,
+    `independent_persistent` (§126.13).
   - It records where ESXi put the redo log, then discovers and verifies the
-    guest device.
+    guest device. The journal record carries the disk mode, so the detach
+    guard and proxy identification know a writable attachment by its record.
 - **Device.** `internal/linuxdev` finds the attachment by WWID (the backing
   UUID), corroborated by SCSI target, LUN and capacity. It refuses disks
   with holders or mounts, settles udev, and re-verifies the device on the
@@ -144,11 +146,14 @@ HOTADD-0001 to HOTADD-0003.
   opens, and reads with `pread` (through a bounce buffer when unaligned).
   `internal/readahead` serves sequential reads from aligned blocks fetched
   ahead in parallel (default: eight blocks of 2 MiB). Close waits for those reads before
-  the device is closed (§126.5).
+  the device is closed (§126.5). A disk opened for writing must carry its
+  WWID; its device is opened `O_RDWR` with the read-only flag cleared,
+  written with `pwrite` and synced with `fdatasync`, and has no read-ahead.
 - **Close.** Close releases the guest SCSI device, detaches the disk, and
   removes any redo leftovers that ESXi did not delete. Then it finishes the
   journal record. A failed step keeps the record for recovery and returns
-  an error.
+  an error. A disk opened for writing is flushed first, and is left
+  attached for review when the worker claims it once its device is closed.
 - **Recovery.** Recovery runs before each HotAdd Open and in
   `VixDiskLib_Cleanup`. It reconciles orphaned records with the proxy's
   actual devices and never detaches anything the journal does not prove is
@@ -158,3 +163,27 @@ HOTADD-0001 to HOTADD-0003.
 - **Access control.** PrepareForAccess and EndAccess disable and re-enable
   `RelocateVM_Task` on the source VM, through hand-built
   `DisableMethods`/`EnableMethods` calls.
+
+## Writes (CONTRACT.md §37, §126.13, §131)
+
+Writes are off until a switch outside the program turns them on for a
+transport family (D-A001).
+
+- **Switches.** `internal/lifecycle` reads them at `Init`/`InitEx`, from
+  the configuration file and the environment, and logs which are on.
+- **Scope.** `internal/core` checks the disk against §37 after it is
+  resolved and before any transport is tried, then tries only the listed
+  transports whose switch is on. It moves on only from a HotAdd that cannot
+  run here or whose datastore may not hold the write, and never from NBDSSL
+  to NBD.
+- **HotAdd** (D-A003, D-A004). `internal/core` compares the free space,
+  read by `internal/vsphere`, before the attach of a disk that can grow.
+  `internal/vsphere` attaches the disk `independent_persistent`;
+  `internal/hotadd` journals the mode, and `internal/linuxdev` writes
+  through the verified device.
+- **NBDSSL and NBD** (D-A002). `internal/vsphere` asks for the write ticket
+  (`NfcRandomAccessOpenDisk`). `internal/nfc` opens the file for writing
+  and sends the content ID, the write pieces and the flush. It reads the
+  host's error frames for those requests only; reads keep their own
+  handling. `internal/core` keeps one request in flight per handle and the
+  first error for `Flush` and `Close`.

@@ -10,7 +10,8 @@ Status: 2026-11-23, 0.7.5 (released 2026-11-22 from `main`). Changed since
 0.7.4: vSphere 9.1.1 (tested after 0.7.4 was released), encrypted VMs over NBD
 (0.7.5), and ESXi 7.0 GA, verified on 0.7.5 by the reporter of
 openvddk/openvddk#1 on 2026-11-23. Signing in to an ESXi host directly is new in 0.7.4. The HotAdd-only
-line (`release/hotadd`, 0.6.x) is retired (D-0044).
+line (`release/hotadd`, 0.6.x) is retired (D-0044). Writes (D-A001 to
+D-A004, 2026-11-24) are in "Writing" below.
 
 ## Interface and platform
 
@@ -20,7 +21,7 @@ line (`release/hotadd`, 0.6.x) is retired (D-0044).
 | Operating system | Linux x86-64, glibc 2.28 or newer | built in an Enterprise Linux 8 container; depends on nothing but glibc |
 | Tested reader systems | AlmaLinux 9.8 (all transports); Debian 13 live (HotAdd, a worker without a disk of its own, HOTADD-0036); Ubuntu 24.04 as a KVM instance outside vSphere (NBDSSL, NBD; NBD-0020 to NBD-0022) | outside a VMware virtual machine HotAdd is skipped for the next listed transport, as VMware's library skips it (NBD-0021) |
 | Transports | HotAdd, NBDSSL, NBD (listed in that order) | SAN and local file access are not supported (D-0039); a consumer's transport list is read as VMware's library reads it, every ordered list of the five names verified inside and outside vSphere (NBD-0021) |
-| Writing | not supported | read-only by design (D-0027) |
+| Writing | the current disk of a powered-off VM, no snapshot named; off unless switched on per transport family (D-A001) | HotAdd, NBDSSL and NBD; see "Writing" below |
 
 ## vSphere versions and transports
 
@@ -79,6 +80,27 @@ PrepareForAccess and EndAccess answer 20 there, as VMware's library does.
 | A migration application that reads disks over HotAdd (cold and warm migrations, up to 17 disks of one VM in parallel) | — | HotAdd | the B and Q-E2E rows of HOTADD-QUALIFICATION |
 | Migratekit (VMware to OpenStack; full copy, changed blocks of a running VM, cutover) into DevStack 2026.1 | image `main` of 2026-08-26 | NBDSSL (its list is `file:nbdssl:nbd`) | NBD-0020, NBD-0022; needs 0.7.1 (0.7.0 could not open a disk, NBD-0019) |
 
+## Writing
+
+Writes (D-A001 to D-A004) were compared with VMware's VDDK 9.1, the
+reference for writes. Everything below was run on one vSphere 8.0.3 lab
+(vCenter b24022515, ESXi b24022510), from a Debian 13 worker VM, on VMFS.
+
+| What | HotAdd | NBDSSL | NBD | Records |
+|---|---|---|---|---|
+| Through vCenter: a thick flat base disk, thin disks, the current SEsparse delta of a VM with a snapshot | verified: data read back exactly, the same bytes and space as VMware's library | verified (same check) | verified (same check) | HOTADD-A002, HOTADD-A004, NBD-A001 |
+| Signing in to an ESXi host directly | not used (D-0052): the open moves on to the next listed transport | verified | verified | NBD-A002 |
+| Refusals: a snapshot named, a file lower in the chain, a running VM, writes off | verified (13, or 6 with writes off) | verified | verified | HOTADD-A002, NBD-A001 |
+| A datastore that fills | the worker VM stops with either library; the free-space check refuses beforehand | 8, as VMware's library | 8 | HOTADD-A003, HOTADD-A008, NBD-A001 |
+| Host and device failures: device offline or removed, the connection cut | VMware's library answers 7 and 8 (HOTADD-A001); OpenVDDK gives the same codes in unit tests, not yet run live | the connection cut: 14009, as VMware's library; Flush and Close report the error | as NBDSSL | HOTADD-A001, NBD-A001 |
+| A kill at every journaled step, then Cleanup | verified: detached, nothing left | not applicable (nothing attached) | not applicable | HOTADD-A006 |
+| Written images that LVM or MD could claim | LVM: refused without a filter, nothing claimed with one; MD: see SECURITY.md | not applicable | not applicable | HOTADD-A007 |
+
+Not tested yet: NFS v3 and NFS 4.1 datastores (the attach and power-on
+locks of HW1), vSAN, vSphere 6.7, 7.0 and 9.1, OpenVDDK with a device set
+offline or removed under a HotAdd writer, and the vCenter privileges
+writes need (`evalkit/README.md`, "vCenter privileges").
+
 ## Requirements in short
 
 - HotAdd: the reader is a VM in the same vCenter, on a host that sees the
@@ -90,3 +112,6 @@ PrepareForAccess and EndAccess answer 20 there, as VMware's library does.
   the reader's CPU needs AES instructions; a reader VM should get the
   host's CPU features (NBD-0022, NBD-0023).
 - vCenter privileges: `evalkit/README.md`, "vCenter privileges".
+- Writes: a switch outside the program per transport family; for HotAdd
+  also the worker's disk ID settings and its LVM restricted
+  (`evalkit/README.md`, "Writing").

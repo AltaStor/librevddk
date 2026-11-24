@@ -52,7 +52,11 @@ are kept as they are.
 - `tools/container/run.sh make check` passes (README, "Build and test").
 - A change of behaviour comes with a test, and a newly observed behaviour
   of the reference library with its record.
-- Writes stay unsupported by design (D-0027).
+- Writes stay within CONTRACT.md §37: the current disk of a powered-off VM
+  without a snapshot, off unless switched on outside the program (D-A001).
+  Writing anything else needs a new decision and a contract revision. A
+  newly observed write behaviour of the reference is observed with VMware's
+  VDDK 9.1 (§49).
 
 ## Pull requests
 

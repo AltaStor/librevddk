@@ -1,8 +1,10 @@
 # D-A002 — Writes over NBDSSL and NBD
 
 - Date: 2026-11-05, revised 2026-11-12
-- Contract: §19, §21, §37, §38
-- Status: proposed. Writes over NBDSSL and NBD under the scope and the
+- Contract: §18, §19, §21, §37, §38, §131
+- Status: accepted (2026-11-24, contract 0.44; amends D-0039 for writes:
+  its move from NBDSSL to NBD after a refused TLS stream applies to reads
+  only). Writes over NBDSSL and NBD under the scope and the
   switch of D-A001. The reference observations NW1 to NW4 below were
   recorded on 2026-11-06 (NET-A002), and points 6 to 8 match them. Point 4
   holds the ticket a write open needs (NET-A003).
@@ -160,11 +162,11 @@ NET-A002 then recorded how the host fails writes:
        `VIX_E_FILE_ERROR` (7).
    - **After a failed write.** The host ends the session after a failed
      write request (NET-A002). The call answers the code above. Every later
-     write or flush on the handle answers 14009, and Close answers the
-     first error. A read answers 1, as a read of a read-only open does when
-     the host ends its session (NBD-0033), and so does a read during which
-     the host ends the session. A failed flush leaves the session working,
-     as on the host.
+     write on the handle answers 14009, and Flush and Close answer the
+     first error (point 7). A read answers 1, as a read of a read-only
+     open does when the host ends its session (NBD-0033), and so does a
+     read during which the host ends the session. A failed flush leaves the
+     session working, as on the host.
    - **Lost session.** A session lost on the network answers 14009 for the
      call in flight and every later call, as for reads (NBD-0002). Nothing
      reconnects, as in VMware's library.
@@ -225,10 +227,11 @@ through its public functions, and from OpenVDDK's own runs:
   library was examined only through its dynamic tables and by running it.
   No VMware code was used, and nothing was decompiled or disassembled.
 
-## Proposed contract text
+## Contract text
 
-For the maintainer to apply with the contract's own section numbers, as a
-new section after the one for HotAdd decisions:
+Applied in contract 0.44 as §131, "NBDSSL and NBD Writes", with the
+details of points 4 to 8 spelled out; §18 and §19 point to it. The text as
+decided:
 
 > **NBDSSL and NBD writes (D-A002).** The evidence is NET-A001, NET-A002,
 > NET-A003 and HOTADD-A001.
@@ -255,10 +258,11 @@ new section after the one for HotAdd decisions:
 >   On a handle whose write or flush failed, or whose session was lost,
 >   Flush and Close return that error.
 > - **Errors:** a request has failed when any `ERROR` frame came for it.
->   A refused open answers 13; out of space 8; another refusal 7; after a
->   failed write request, and on a lost session, 14009, apart from a read
->   after the host ended the session, which answers 1. After any of these
->   the data written since the last successful Flush is undefined.
+>   A refused open answers 13; out of space 8; another refusal 7. After a
+>   failed write request every later write answers 14009, a read 1, and
+>   Flush and Close the first error; on a lost session every call answers
+>   14009. After any of these the data written since the last successful
+>   Flush is undefined.
 > - **Partial failure:** nothing is attached or journaled; an interrupted
 >   write leaves some writes applied, and the copy is to be run again.
 
@@ -274,6 +278,7 @@ new section after the one for HotAdd decisions:
 - **A direct connection to an ESXi host:** the write asks the host's own
   NFC service for the same ticket, as VMware's library does (NET-A003), and
   works over NBDSSL and NBD (NBD-A002). HotAdd stays vCenter-only (D-0052).
-- **Guides:** the documentation pull request carries the wording above.
+- **Guides:** the kit's README and KNOWN-DIFFERENCES, the developer guide
+  and SECURITY.md carry the wording above (contract 0.44).
 - **Not planned:** pieces larger than 64 KiB, writes spread over several
   sessions, and writes at snapshots or to running VMs.

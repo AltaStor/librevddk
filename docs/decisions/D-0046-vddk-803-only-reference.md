@@ -2,7 +2,9 @@
 
 - Date: 2026-10-26
 - Contract: §93, §94, §95 (amends D-0011)
-- Status: accepted (2026-10-26).
+- Status: accepted (2026-10-26). *Amended by D-A001 (2026-11-24): VMware's
+  VDDK 9.1 is the reference for writes; 8.0.3 stays the only reference
+  for reads (CONTRACT.md §49).*
 
 ## Context
 

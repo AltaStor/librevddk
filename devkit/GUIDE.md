@@ -1,7 +1,8 @@
 # OpenVDDK developer guide
 
 This guide is for people writing a program that reads VMware virtual disks
-through OpenVDDK: a backup tool, a migration tool, a scanner. It describes
+through OpenVDDK, or writes one back: a backup tool, a migration tool, a
+scanner, a restore. It describes
 the library's C interface, which is the VixDiskLib 8 interface that
 existing tools already use, and how OpenVDDK behaves behind it.
 
@@ -10,7 +11,9 @@ runs with OpenVDDK and with VMware's VDDK 8.0.3 alike: the function names,
 structures, constants and error codes are the same. Where the two libraries
 answer differently, `KNOWN-DIFFERENCES.md` says how and why.
 
-OpenVDDK reads disks; it does not write them (see "Writing" below).
+OpenVDDK reads disks. It writes only the current disk of a powered-off VM,
+and only once writes are switched on outside the program (see "Writing"
+below).
 
 ## Contents
 
@@ -176,7 +179,7 @@ err = VixDiskLib_ConnectEx(p, TRUE, "snapshot-NNNN", "hotadd:nbdssl", &conn);
   library checks before it sends the password. OpenVDDK accepts SHA-1 or
   SHA-256 in hex, with or without colons.
 - **Read-only.** Pass `TRUE` for `readOnly`, and open disks with
-  `VIXDISKLIB_FLAG_OPEN_READ_ONLY`.
+  `VIXDISKLIB_FLAG_OPEN_READ_ONLY`. To write, see section 12.
 - **Snapshot.** Read a running VM at a snapshot: create the snapshot
   through vCenter first, pass its ID (`snapshot-NNNN`), and open the disk by
   the file name the snapshot lists for it. A powered-off VM can also be read
@@ -277,6 +280,11 @@ attached to the worker. The next `VixDiskLib_Cleanup(p, &cleaned,
 detaches it; the `openvddk-admin` tool shows and clears what is left
 (`ADMIN.md`).
 
+On a disk open for writing, `Close` first flushes what was written and
+returns an error when that fails (section 12). A disk that was open for
+writing when its program was killed is detached the same way, and its
+content is undefined until the copy is run again.
+
 ## 9. Transports
 
 | Transport | How the disk is read | Needs |
@@ -302,7 +310,9 @@ The list passed to `ConnectEx` decides what may be used:
   the next listed one is tried, and the log says why;
 - NBDSSL becomes clear-text NBD only when the list has `nbd` after `nbdssl`
   and the ESXi host refused encryption for the data. A program that wants
-  encryption in every case lists `nbdssl` without `nbd`.
+  encryption in every case lists `nbdssl` without `nbd`;
+- a disk opened for writing uses only the listed transports whose write
+  switch is on, and never moves from NBDSSL to NBD (section 12).
 
 The requirements of each transport (the worker VM for HotAdd, privileges,
 network ports) are in `OPERATIONS.md`.
@@ -316,7 +326,7 @@ belongs to one of four classes:
 |---|---|---|
 | global | `Init`, `InitEx`, `Exit`, `Cleanup` | one at a time in the process |
 | per connection | `Open`, `Disconnect` | one at a time per connection |
-| per disk | `Read`, `ReadAsync`, `Wait`, `Close`, `GetInfo`, `QueryAllocatedBlocks`, `ReadMetadata`, ... | one at a time per disk handle |
+| per disk | `Read`, `ReadAsync`, `Write`, `WriteAsync`, `Flush`, `Wait`, `Close`, `GetInfo`, `QueryAllocatedBlocks`, `ReadMetadata`, ... | one at a time per disk handle |
 | any | the rest | any thread, any time |
 
 Different disks can be read in parallel from different threads. To keep
@@ -342,26 +352,82 @@ and `VixDiskLib_GetErrorText(err, NULL)` a text to show, freed with
 | Code | Name | Typical cause |
 |---|---|---|
 | 3 | `VIX_E_INVALID_ARG` | An argument outside the rules (for example a chunk size that is not a power of two), or `Open` without the read-only flag on a read-only connection |
-| 6 | `VIX_E_NOT_SUPPORTED` | A function or mode OpenVDDK does not provide (section 13), or `Open` without the read-only flag on a connection for writing |
-| 11 | `VIX_E_FILE_READ_ONLY` | A write call (section 12) |
-| 13 | `VIX_E_FILE_ACCESS_ERROR` | The disk is not a disk of the VM at that snapshot: a wrong path, or an independent disk, which snapshots do not capture |
+| 6 | `VIX_E_NOT_SUPPORTED` | A function or mode OpenVDDK does not provide (section 13), or `Open` without the read-only flag on a connection for writing while writes are off for every listed transport (section 12) |
+| 7 | `VIX_E_FILE_ERROR` | A write or `Flush` the device or the ESXi host refused (section 12) |
+| 8 | `VIX_E_DISK_FULL` | A write or `Flush` that ran out of space, or a HotAdd write open whose datastore may not hold the write (section 12) |
+| 11 | `VIX_E_FILE_READ_ONLY` | A write call on a disk opened read-only (section 12) |
+| 13 | `VIX_E_FILE_ACCESS_ERROR` | The disk is not a disk of the VM at that snapshot: a wrong path, or an independent disk, which snapshots do not capture; or a disk that may not be written (section 12) |
 | 24 | `VIX_E_BUFFER_TOOSMALL` | The first call of the two-call pattern (section 7) |
 | 1000 | `VIX_E_INVALID_HANDLE` | A handle that was closed or never opened |
 | 13003 | `VIX_E_SNAPSHOT_NOTFOUND` | The snapshot does not exist |
 | 14009 | `VIX_E_HOST_NETWORK_CONN_REFUSED` | The network connection to the ESXi host was lost (NBDSSL, NBD) |
+| 16007 | `VIX_E_DISK_OUTOFRANGE` | A write that reaches past the end of the disk; nothing of it is written |
 | 16052 | `VIX_E_DISK_KEY_NOTFOUND` | An unknown metadata key |
-| 25000 | `VIX_ASYNC` | Not an error: `ReadAsync` started the read |
+| 25000 | `VIX_ASYNC` | Not an error: `ReadAsync` or `WriteAsync` started the call |
 
 Treat any other code as a failure of the call and show its text; the log
 says more.
 
 ## 12. Writing
 
-OpenVDDK reads disks for backup and migration; it does not write them.
-On an open disk, `Write`, `WriteMetadata`, `Shrink` and `Defragment` return
-`VIX_E_FILE_READ_ONLY` (11), as VMware's library does on a read-only disk;
-`WriteAsync` returns `VIX_ASYNC` and reports 11 through its callback. A
-program that restores into a VM needs another library.
+OpenVDDK writes a disk only when all of these hold:
+
+- **Writes are switched on** for the transport, outside the program:
+  `OpenVDDK.hotadd.write = "true"` (HotAdd) or `OpenVDDK.nbd.write =
+  "true"` (NBDSSL and NBD) in the configuration file passed to `InitEx`, or
+  `OPENVIX_HOTADD_WRITE=1` or `OPENVIX_NBD_WRITE=1` in the environment.
+  They are off by default, so a program cannot turn them on by itself, and
+  a host where nobody did stays read-only.
+- **The connection is for writing:** `ConnectEx` with `readOnly` FALSE and
+  no snapshot (`snapshotRef` NULL).
+- **The VM is powered off**, and the path is the disk's current top file:
+  its delta when the VM has snapshots, its base disk otherwise. The disk is
+  a flat, sparse or SEsparse disk, not independent, not a raw device
+  mapping, not encrypted.
+
+```c
+err = VixDiskLib_ConnectEx(p, FALSE, NULL, "hotadd:nbdssl", &conn);
+err = VixDiskLib_Open(conn, "[datastore1] vm/vm.vmdk", 0, &disk);
+err = VixDiskLib_Write(disk, startSector, numSectors, buf);
+/* ... every write checked ... */
+err = VixDiskLib_Flush(disk);   /* only now is the data stored */
+err = VixDiskLib_Close(disk);
+```
+
+- **Refusals.** With writes off, `Open` without the read-only flag fails
+  with 6; on a read-only connection with 3; for a disk outside the rules
+  above with 13, before any transport is tried.
+- **Transports.** Only the listed transports whose switch is on are used,
+  in the list's order. HotAdd gives way to the next one only when it cannot
+  run on this machine, or when the disk's datastore may not hold the write
+  (a thin disk or a delta on a nearly full datastore; with nothing writable
+  after HotAdd, `Open` fails with 8). A write never moves from NBDSSL to
+  clear-text NBD. A HotAdd write also needs the worker's disk ID settings
+  and its LVM restricted (`OPERATIONS.md`).
+- **Requests.** Offsets and lengths are in 512-byte sectors, as for reads.
+  A write that reaches past the end of the disk fails with 16007 and
+  writes nothing. `WriteAsync` returns `VIX_ASYNC` and calls its callback on
+  the calling thread before it returns. Do not mix `Write` and `WriteAsync`
+  on one handle.
+- **Durability.** A `Write` that returned 0 is not yet stored. Call
+  `Flush` and check it before you treat the copy as complete: only a
+  successful `Flush` says that what was written before it is on the
+  datastore. `Close` flushes too and returns an error when that fails.
+- **Errors.** 8 means no space (the datastore, or over HotAdd a device
+  removed from the worker), 7 another refusal by the device or the host,
+  14009 a lost connection or, after a failed write over NBDSSL or NBD, any
+  later write. Over NBDSSL and NBD, after a failed write or flush, `Flush`
+  and `Close` keep returning the first error. On every transport, after an
+  error the data written since the last successful `Flush` is undefined:
+  run the copy again.
+- **Not provided.** `WriteMetadata`, `Shrink` and `Defragment` return 6 on
+  a disk open for writing and `VIX_E_FILE_READ_ONLY` (11) on a disk opened
+  read-only, as `Write` does there.
+
+VMware's library writes without any switch, also at a snapshot and into a
+parent of a snapshot chain (which breaks the chain), and moves writes
+between transports without telling the program. `KNOWN-DIFFERENCES.md`
+lists every difference for writes.
 
 ## 13. Functions and their status
 
@@ -370,12 +436,13 @@ program that restores into a VM needs another library.
 | `InitEx`, `Init`, `Exit`, `ListTransportModes` | Provided |
 | `AllocateConnectParams`, `FreeConnectParams` | Provided |
 | `ConnectEx`, `Connect`, `Disconnect`, `PrepareForAccess`, `EndAccess`, `Cleanup` | Provided for VMs managed by vCenter |
-| `Open`, `Close`, `GetInfo`, `FreeInfo`, `GetTransportMode` | Provided (read-only) |
-| `Read`, `ReadAsync`, `Wait`, `Flush` | Provided (read-only) |
+| `Open`, `Close`, `GetInfo`, `FreeInfo`, `GetTransportMode` | Provided; opens for writing as section 12 says |
+| `Read`, `ReadAsync`, `Wait`, `Flush` | Provided |
+| `Write`, `WriteAsync` | Provided for the current disk of a powered-off VM, once writes are switched on (section 12) |
 | `QueryAllocatedBlocks`, `FreeBlockList` | Provided |
 | `GetMetadataKeys`, `ReadMetadata` | Provided |
 | `GetErrorText`, `FreeErrorText` | Provided |
-| `Write`, `WriteAsync`, `WriteMetadata`, `Shrink`, `Defragment` | Not provided by design: read-only (section 12) |
+| `WriteMetadata`, `Shrink`, `Defragment` | Not provided by design (section 12) |
 | `GetConnectParams` | Planned: returns `VIX_E_NOT_SUPPORTED` |
 | `Create`, `CreateChild`, `Clone`, `Grow`, `Rename`, `Unlink`, `IsAttachPossible`, `Attach`, `SpaceNeededForClone`, `CheckRepair` | Not provided: these work on local disk files rather than disks of VMs in vSphere; they fail with an error, never with a false success |
 
@@ -384,6 +451,10 @@ program that restores into a VM needs another library.
 - Include only `vixDiskLib.h` and use only the functions marked
   "Provided" above.
 - Connect read-only, open read-only, read at a snapshot.
+- To write, write only the current disk of a powered-off VM without a
+  snapshot, check every `Write`, and call `Flush` and check it before
+  `Close`. Such a program writes with both libraries; OpenVDDK also needs
+  its switch (section 12).
 - Pass the transport list you mean; do not rely on the default.
 - Check every return code, and show `GetErrorText` for failures.
 - Follow the callback rules in sections 5 and 10.

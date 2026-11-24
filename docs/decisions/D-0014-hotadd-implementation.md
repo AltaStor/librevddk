@@ -2,7 +2,9 @@
 
 - Date: 2026-10-02
 - Contract: §22–§31, §44, §57, §126
-- Status: accepted
+- Status: accepted. *Amended by D-A003 (2026-11-24): a disk opened for
+  writing is attached `independent_persistent` and known by its journal
+  record (§126.13).*
 
 ## Decision
 

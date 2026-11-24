@@ -11,12 +11,17 @@ Status 2026-10-14, library 0.6.25 (contract 0.27). Scope of this record:
 the HotAdd transport, read-only by design (D-0027), Linux x86-64.
 NBD/NBDSSL are not started (a paused work-in-progress exists).
 
+Status of the write rows 2026-11-24 (contract 0.44): writes over HotAdd to
+the current disk of a powered-off VM, once switched on (CONTRACT.md §37,
+§126.13; D-A001, D-A003, D-A004), in "Writes" below.
+
 ## How tests are run (method)
 
 - **Reference first.** Every behaviour is first observed with VMware VDDK
   8.0.3 (build 23950268, `libvixDiskLib.so.8.0.3` SHA-256 `afa97c62…`),
   then the candidate must match it or differ on purpose (a decision
-  record says why).
+  record says why). Writes are first observed with VMware VDDK 9.1
+  (`libvixDiskLib.so.9.1.0.0` SHA-256 `c955e08f…`, CONTRACT.md §49).
 - **Library swap.** A/B runs use the same consumer, the same snapshot and
   the same proxy; only the library file differs; the library actually
   loaded is proven from the running process. Correctness runs hash
@@ -43,7 +48,10 @@ Consumers used: `vixcopy` (library-only test program: reads, hashes or
 discards, never writes the source; options for threads, async, extents),
 `vixmulti` (one connection, several disks), `vixcycles` (open/read/close
 cycles), nbdkit 1.38.5 with the VDDK plugin + nbdcopy, and a migration
-application that reads disks over HotAdd, unmodified (end to end).
+application that reads disks over HotAdd, unmodified (end to end). For the
+write rows, `vixwrite` (writes a pattern derived from the sector number and
+a seed, or an image, with `Write` or `WriteAsync`, optionally `Flush`, and
+verifies it through a separate read-only open).
 
 ## Tests run
 
@@ -159,13 +167,38 @@ application that reads disks over HotAdd, unmodified (end to end).
 
 The §79 gate for HotAdd was measured; the figures are not published.
 
+### Writes (D-A003, D-A004)
+
+Environment for every row: vCenter 8.0.3 b24022515, one ESXi 8.0.3
+b24022510 host, VMFS, a Debian 13 worker VM and a target VM made for write
+tests (CONTRACT.md §120). Reference VMware VDDK 9.1.
+
+| ID | Test | Sections | Result | Record |
+|---|---|---|---|---|
+| HW1 | A write to a powered-off VM's disk, no snapshot: the attach spec, the disk mode, extraConfig, the device calls, the detach; power-on of the target while attached | §37, §126.1, §126.5, §126.13 | the reference attaches `persistent` and writes through `O_RDWR`; the candidate attaches `independent_persistent` (a deliberate difference), verified by disk ID, `BLKROSET` 0, `pwrite` and `fdatasync`; data read back exactly with both; the power-on refused by the disk's lock while attached; VMFS only, NFS v3 and NFS 4.1 still to run | HOTADD-A001, HOTADD-A002 |
+| HW2 | Write opens D-A001 refuses: a snapshot named, a file lower in the chain, a running VM | §37 | the reference writes the snapshot point and the parent and breaks the chain (16008), and refuses a running VM only through the host's lock; the candidate refuses each with 13 before any attach | HOTADD-A001, HOTADD-A002 |
+| HW3 | Transports: a write open where HotAdd cannot run, with NBDSSL and NBD listed | §18, §126.9 | the reference moves to NBDSSL without a message, and once to clear-text NBD; the candidate moves on from HotAdd only when it cannot run here, with a warning, never from NBDSSL to NBD | HOTADD-A001, HOTADD-A004, NBD-A002 |
+| HW4 | `WriteAsync` over HotAdd | §37 | both: `VIX_ASYNC`, callbacks on the calling thread before the call returns, data read back exactly | HOTADD-A001, HOTADD-A002 |
+| HW5 | `Flush` and `Close` after writes: the system calls; the device set offline or removed | §38, §73 | the reference: `Flush` one `fsync`, no sync at `Close`; 7 for `EIO` (at `Write` unbuffered, at `Flush` buffered), 8 for a removed device, and after a removed device `Close` 0 with the disk left attached; the candidate: `fdatasync` at `Flush` and at `Close`; its fault cases are covered by unit tests and still to run live | HOTADD-A001, HOTADD-A002 |
+| HW6 | A thin target on a datastore that fills during a write | §73, §126.13 | with both libraries ESXi stops the worker VM with an out-of-space question and no call fails; Cancel powers it off, Cleanup then recovers; a writer stuck in `O_DIRECT` I/O holds its record until a detach in vCenter or a power-off; led to D-A004 | HOTADD-A003 |
+| HW7 | Images with LVM and MD signatures written and closed: what the worker activates | §57, §126.8 | LVM: the candidate refuses an unrestricted LVM, nothing claimed with a filter, with either library; MD: a member whose home host is the worker's is assembled at the attach, the candidate refuses the open, the array stays; the reference writes the claimed disk anyway | HOTADD-A007 |
+| HW8 | A/B: the same image written by both libraries to identical targets, over HotAdd and NBDSSL | §4, §37 | the same bytes, the same space, the same descriptor change; a write over HotAdd ends the disk's change tracking with either library | HOTADD-A004 |
+| HW9 | A kill at every fault point of a HotAdd write, then Cleanup and the residue check | §71, §103, §126.10 | every point recovered: detached, record removed, the warning that the content is undefined, no residue | HOTADD-A006 |
+| FS1 | The file-layout size of a thin flat disk and an SE sparse delta against the datastore browser, before and after writes | §126.13 | equal after `RefreshStorageInfo`, stale without it; a delta's metadata added about 11 % | HOTADD-A005 |
+| FS3 | The free-space check on a small datastore: a write that cannot fit, one that fits, a delta, `warn` and `off` | §73, §126.13 | refused with 8, or moved to NBDSSL when listed with its switch on; what fits runs to the end; `warn` and `off` as decided | HOTADD-A008 |
+
+Unit tests cover the switch, the refusals, the journal fields and their
+absence, the identification and detach guards with writable records, the
+flush failure at Close, a written disk claimed after Close, and recovery
+of a writable record.
+
 ## Still to test before HotAdd is closed
 
 ### Storage failures (§73; ENV-70A, reference first)
 
 | ID | Test | Sections |
 |---|---|---|
-| S5 | Short write and flush failure: **do not apply**, the library has no write path (D-0027) | §73 |
+| S5 | Short write and flush failure of a disk read for a copy: **do not apply**, a read-only handle has no write path (D-0027); for writes see HW5 and HW6 | §73 |
 
 ### Stress (§74; ENV-70A)
 
@@ -205,6 +238,16 @@ The §79 gate for HotAdd was measured; the figures are not published.
 | B6 | Worker on a different host than the source, shared NFS 4.1 / VMFS datastore (library level done for shared VMFS and NFS 4.1: no stun with any library, the worker on either host, HOTADD-0053; runs through the application remain) | §23 |
 | B7 | vSphere 6.7 end to end through the migration application (reference VDDK 7.0.3). Library level done: allocation queries (HOTADD-0045), reads, sustained load, a killed reader and two readers at once (HOTADD-0046); with 0.6.24 also on 6.7 and 7.0 U3c in ENV-67B and ENV-70B, NFS and VMFS (HOTADD-0047), and from a worker on the ESXi host of each with 0.7.0 (NBD-0010). vSphere 6.5 is not supported for now (2026-10-10) | §95 |
 | B8 | Two workers of the migration application deployed with the same BIOS UUID | §126.4 |
+
+### Writes (D-A003, D-A004)
+
+| ID | Test | Sections |
+|---|---|---|
+| HW1b | HW1 on NFS v3 and NFS 4.1: the attach refused while the target runs, and its power-on refused while attached | §37, §126.13 |
+| HW5b | HW5 with the candidate: the device set offline and removed under buffered and unbuffered writes; the codes, the detach at Close | §38, §73, §126.13 |
+| HW7b | A worker whose `mdadm` assembles arrays automatically: a check like the LVM one, or the documented setting, needs a decision | §126.8 |
+| FS2 | The storage refresh and the reads of the file layout and the free space with the minimal role of the HotAdd guide; the privilege each needs, and the privilege of the write ticket over NBDSSL and NBD | §127.2, §126.13 |
+| HW10 | The write rows with a build from the EL8 container (HOTADD-A002 and HOTADD-A008 used a library built on the development host; HOTADD-A004, -A006 and -A007 used container builds) | §82 |
 
 ## Phases to close HotAdd
 

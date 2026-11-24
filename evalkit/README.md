@@ -34,7 +34,8 @@ Check the kit before use: `sha256sum -c SHA256SUMS`.
 
 ## What works today
 
-- **Three transports, read-only: HotAdd, NBDSSL and NBD.**
+- **Three transports: HotAdd, NBDSSL and NBD.** Reads by default; writes
+  only when switched on (see "Writing" below).
   - **HotAdd:** the disk of a snapshot, or the current disk of a
     powered-off VM, is attached to a worker VM, found and verified in the
     guest by its disk ID, read there as a local block device, and detached
@@ -98,12 +99,80 @@ Check the kit before use: `sha256sum -c SHA256SUMS`.
   migration application that copies up to 17 disks of one VM in parallel
   over HotAdd.
 
+## Writing
+
+The library writes the disk of a VM, for a restore or a migration into
+vSphere, but only when writes are switched on, and only within the limits
+below. Writes are off by default, so a program that opens disks writable
+unless told otherwise (nbdkit without `-r`) stays read-only after an
+upgrade of the library.
+
+- **Switching writes on.** Each transport family has its own switch:
+
+  | Writes over | Key in the `InitEx` file | Or in the environment |
+  |---|---|---|
+  | HotAdd | `OpenVDDK.hotadd.write = "true"` | `OPENVIX_HOTADD_WRITE=1` |
+  | NBDSSL and NBD | `OpenVDDK.nbd.write = "true"` | `OPENVIX_NBD_WRITE=1` |
+
+  Either place is enough. The environment suits a service definition; set
+  it before the program starts. `InitEx` logs which switches are on.
+- **What may be written.** The current disk of a **powered-off** VM,
+  opened with **no snapshot** named (`ConnectEx` with `snapshotRef` NULL
+  and read-only FALSE), by the disk's current top file: its delta when the
+  VM has snapshots, its base disk otherwise. Flat, sparse and SEsparse
+  disks only. Anything else fails `Open` with 13 before any transport is
+  tried: a snapshot named, a file lower in the chain, a running VM, an
+  independent disk, a raw device mapping, an encrypted disk.
+- **Transports.** A write open tries the listed transports whose switch is
+  on, in the list's order. It moves on from HotAdd only when HotAdd cannot
+  run on this machine, or when the datastore may not hold the write (below),
+  and says so in the log. It never moves from NBDSSL to clear-text NBD. A
+  write over NBD crosses the network unencrypted and can be read and
+  changed on the way; the log warns at each such open.
+- **Call `Flush` and check it.** A completed `Write` is not yet stored.
+  Only a successful `Flush` says that what was written before it is on the
+  datastore; `Close` flushes too and returns an error when that fails.
+  After a failed write or flush, the data written since the last successful
+  `Flush` is undefined: run the copy again.
+- **HotAdd writes** need the worker's disk ID settings (requirement 5
+  below): a disk is written only when identified by its disk ID. On a
+  worker without them, where the library may not set them
+  (`OpenVDDK.hotadd.configureProxy = "false"`) or vCenter refuses the
+  change, HotAdd cannot write and the open moves on to the next listed
+  transport. They also need an LVM devices file or filter on the worker,
+  always (requirement 6; `OpenVDDK.hotadd.hostSafety = "warn"` does not
+  relax it for writes). The disk is attached `independent_persistent`.
+- **A datastore that fills.** Over HotAdd, ESXi stops the worker VM with an
+  out-of-space question instead of failing the write, and every copy on
+  that worker stops with it. Before a thin disk or a delta is attached for
+  writing, the library therefore compares the room it may still need with
+  its datastore's free space (`OpenVDDK.hotadd.write.spaceCheck`). When it
+  may not fit, the open moves on to NBDSSL or NBD if listed with their
+  switch on, and fails with 8 otherwise. Other writers on the datastore can
+  still fill it during the copy; if a worker stops on the question, answer
+  Cancel (which powers the worker off) and run `Cleanup` once it is back.
+  Over NBDSSL and NBD a full datastore is an error (8) and the worker
+  keeps running.
+- **Change tracking.** A write over HotAdd ends the target disk's changed
+  block tracking, with VMware's library too; over NBDSSL and NBD it is
+  kept. The next backup of that disk that relies on it reads the whole
+  disk.
+- **Not written:** `WriteMetadata`, `Shrink` and `Defragment` fail with 6
+  on a disk open for writing (11 on a read-only one).
+
+VMware's library writes without a switch, also at a snapshot and into a
+parent of a snapshot chain, which breaks the chain, and moves writes
+between transports without telling the program. `KNOWN-DIFFERENCES.md`
+lists every difference for writes.
+
 ## What does not work (yet)
 
 - **SAN** is not implemented, deliberately.
 - **Local file access** (opening a VMDK as a file, without vSphere) is not
   supported.
-- **Writing** is not supported; the library is read-only by design. See
+- **Writes outside the limits above:** running VMs, snapshots, files lower
+  in a snapshot chain, independent disks, raw device mappings, encrypted
+  disks, and the calls that change a disk's metadata or layout. See
   `KNOWN-DIFFERENCES.md` for the exact codes.
 
 ## Installing
@@ -122,8 +191,9 @@ Two ways, both without recompiling the application:
    kit's `lib64` link to `lib` gives it that. If your copy of the kit lost
    the link (some copy tools drop links), make it again in the kit's
    directory with `ln -s lib lib64`. Open read-only (`-r`, or
-   `readonly=true`): the library does not write, and without it `Open`
-   fails with error 6. virt-v2v passes `-r` itself.
+   `readonly=true`) unless you mean to write: while writes are off, which
+   is the default, `Open` without it fails with error 6 (see "Writing").
+   virt-v2v passes `-r` itself.
 2. **Swap the file in place.** Keep a copy of VMware's library, then
    replace `lib64/libvixDiskLib.so.8.0.3` in its directory with the kit's
    file. Restart every process that uses it: a running process keeps the
@@ -335,6 +405,17 @@ this list: with exactly this role it could not attach the disk.
 Creating and removing the snapshot is the application's job, not the
 library's.
 
+For writes, not yet tested privilege by privilege:
+
+- **NBDSSL and NBD** ask vCenter (or the ESXi host) for the write ticket
+  with `NfcRandomAccessOpenDisk`, as VMware's library does. The privilege it
+  needs has not been checked with a minimal role; when it is missing,
+  `Open` fails and the log names the privilege vCenter reports.
+- **HotAdd** attaches and detaches as for reads. Its free-space check also
+  asks vCenter to refresh the VM's storage information and the datastore's
+  free space; when a refresh is refused, the check uses vCenter's cached
+  value and the log says so.
+
 ## Configuration
 
 Settings go into the configuration file the application passes to
@@ -350,6 +431,9 @@ prefix names the same keys and keeps working.
 | `OpenVDDK.hotadd.readAheadDepth` | `8` | read-ahead blocks kept in flight per open disk (1 to 64); the defaults use about 16 MiB per open disk |
 | `OpenVDDK.hotadd.reconfigureReads` | `1` | reads each open disk keeps in flight while the worker is reconfigured (a disk attached or detached); `0` leaves reads alone |
 | `OpenVDDK.hotadd.configureProxy` | `true` | `false` forbids changing the worker VM's disk ID settings |
+| `OpenVDDK.hotadd.write` | `false` | `true` turns writes over HotAdd on (see "Writing"); `OPENVIX_HOTADD_WRITE=1` in the environment does the same |
+| `OpenVDDK.hotadd.write.spaceCheck` | `refuse` | before a HotAdd write of a thin disk or a delta: `refuse` does not use HotAdd when the datastore may not hold the write, `warn` goes on and logs it, `off` does not check |
+| `OpenVDDK.nbd.write` | `false` | `true` turns writes over NBDSSL and NBD on (see "Writing"); `OPENVIX_NBD_WRITE=1` in the environment does the same |
 | `vixDiskLib.nfcAio.Session.BufSizeIn64KB` | host default (64 KiB) | VMware's key, same meaning: NBDSSL and NBD, the size of the host's buffers for each NFC session in units of 64 KiB (1 to 32), the largest piece a read is served in. From slow storage a larger buffer raises the rate, with either library |
 | `vixDiskLib.nfc.ReadTimeoutMs` | 60000 | VMware's key, same meaning: NBDSSL and NBD, the longest wait in milliseconds for a reply from the host before the read fails |
 | `vixDiskLib.nfcAio.SocketOption.SndBufSize`, `.RcvBufSize` | system | VMware's keys: this side's socket buffers in bytes (the kernel caps them) |
@@ -378,7 +462,11 @@ down.
 - When a disk is closed the library prints the same six per-disk
   statistics lines as VMware's library (`Disk Open Time`, `Disk Close
   Time`, `Disk IO Time`, `Disk IO Size`, `Disk IO Count`, `Disk IO Speed`),
-  and at Disconnect `Backup Time::`.
+  and at Disconnect `Backup Time::`. A disk open for writing gets one more
+  line with its writes and the bytes written.
+- A disk opened for writing is announced at `Open` with a warning naming
+  the disk and the transport, so it shows up in a log that keeps only
+  warnings.
 - Messages go to the callbacks the application passes to `InitEx`. A
   warning without a warn callback goes to the log callback, marked
   `WARNING: `. A message no callback takes goes to the library's own file,
@@ -410,6 +498,13 @@ openvddk-admin cleanup     (same options)   recover, as VixDiskLib_Cleanup does
 
 A disk attached by another program (for example VMware's library) has no
 journal record here and is never touched.
+
+A disk that was open for writing is detached the same way, and no file of
+it is deleted; the log warns that its content is undefined until the copy
+is run again. A writer stuck in disk I/O (for example on a datastore that
+filled) still owns its record, so recovery leaves it alone;
+`openvddk-admin journal` says so, and detaching the disk from the worker
+in vCenter, or powering the worker off, frees it.
 
 ## Reporting a problem
 

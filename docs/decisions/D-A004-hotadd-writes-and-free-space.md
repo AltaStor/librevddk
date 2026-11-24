@@ -2,9 +2,9 @@
 
 - Date: 2026-11-06
 - Contract: §37, §38, §126.13
-- Status: proposed. Amends D-A003 for write opens over HotAdd of disks
-  that can grow. It does not change NBDSSL
-  and NBD (D-A002), where a full datastore is reported as an error. FS1 and
+- Status: accepted (2026-11-24, contract 0.44). Amends D-A003 for write
+  opens over HotAdd of disks that can grow. It does not change NBDSSL and
+  NBD (D-A002), where a full datastore is reported as an error. FS1 and
   FS3 below are done; FS2 (the privileges) is open, because creating a
   test role in vCenter was not possible from the test session.
 - Evidence: HOTADD-A003 (HW6), NET-A002.
@@ -107,9 +107,8 @@ write that the datastore cannot hold, and say so.
 
 ## Consequences
 
-- **Contract:** for the maintainer to apply, the subsection of D-A003 on
-  HotAdd writes gains the check,
-  the key and the admin report.
+- **Contract:** §126.13, the subsection of D-A003 on HotAdd writes,
+  carries the check, the key and the admin report (contract 0.44).
 - **Configuration:** a new key, `OpenVDDK.hotadd.write.spaceCheck`
   (`refuse`, `warn` or `off`; `refuse` by default).
 - **Documentation:** the HotAdd guide and KNOWN-DIFFERENCES describe the

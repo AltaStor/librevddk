@@ -1,9 +1,10 @@
 # OpenVDDK: an independent implementation of the VixDiskLib API
 ## Normative Engineering Contract
 
-**Document version:** 0.43 (2026-11-22)  
+**Document version:** 0.44 (2026-11-24)  
 **Initial compatibility target:** VMware VDDK 8.0.3, build 23950268, Linux x86_64  
 **Reference package:** `VMware-vix-disklib-8.0.3-23950268.x86_64.tar.gz`  
+**Reference for writes:** VMware VDDK 9.1, `VMware-vix-disklib-9.1.0.0.25379531.x86_64.tar.gz` (§49, D-A001)  
 **Primary implementation language:** Go, with C limited to the ABI boundary (§7)  
 **Source model:** Apache License 2.0 (§88, D-0043)  
 **Primary binary target:** Linux x86-64 ELF shared library `libvixDiskLib.so.8.0.3` (§8)  
@@ -175,6 +176,22 @@ Revision history:
   (§95, D-0052).
 - 0.43 — the kit is the runtime kit, with a fixed-name copy and a `lib64`
   link (§127, D-0055).
+- 0.44 — Writes (D-A001 to D-A004):
+  - the current disk of a powered-off VM opened without a snapshot may be
+    written once a switch outside the program turns writes on for its
+    transport family; writes are off by default (§37, D-A001);
+  - the switches are configuration keys or `OPENVIX_` environment
+    variables, read in production (§15, amending D-0007);
+  - writes over NBDSSL and NBD, never moved from NBDSSL to NBD (§131,
+    D-A002);
+  - writes over HotAdd: the disk attached `independent_persistent` and
+    known by the journal, identified by its disk ID only, the LVM check
+    always enforced, no read-ahead (§126.1, §126.4, §126.5, §126.7–§126.10,
+    §126.13, D-A003);
+  - a free-space check before a HotAdd write of a disk that can grow
+    (§126.13, D-A004);
+  - VMware VDDK 9.1 is the reference for writes, VDDK 8.0.3 stays the
+    reference for reads (§49, amending D-0046).
 
 ---
 
@@ -723,9 +740,15 @@ Project-specific configuration keys SHALL be documented, and named in the
 library's messages, with the public prefix `OpenVDDK.` (D-0051). The
 original prefix `OpenVix.` (D-0007) names the same keys and SHALL keep
 working; both spellings name one key (D-0021). Project environment
-variables keep the `OPENVIX_` prefix.
+variables keep the `OPENVIX_` prefix; the write switches
+`OPENVIX_HOTADD_WRITE` and `OPENVIX_NBD_WRITE` are named after the keys they
+stand for (§37, D-A001).
 
 Environment variables MAY provide developer/test overrides, but production compatibility MUST NOT depend on them.
+
+The write switches are the one exception. A switch is read from the
+environment, so that a service definition can turn writes on, or from the
+configuration file passed to `InitEx`; either is enough (D-A001).
 
 ---
 
@@ -847,6 +870,11 @@ From 0.7.0 the listed transports are `hotadd:nbdssl:nbd`, in that order;
 fallback SHALL stay within the consumer's list, and NBDSSL SHALL NOT be
 replaced by clear-text NBD unless the consumer listed `nbd` as well (D-0039).
 
+An open for writing tries only the listed transports whose write switch is
+on (§37). It moves on only from a HotAdd that cannot run on this machine or
+whose datastore may not hold the write (§126.9, §126.13), and never from
+NBDSSL to NBD, for any reason (§131, D-A002).
+
 ---
 
 # 19. NBD and NBDSSL
@@ -874,6 +902,8 @@ Integer overflow MUST be explicitly prevented.
 Network reads SHALL have bounded memory behavior.
 
 Protocol parsers SHALL be fuzz-tested.
+
+Writes over NBDSSL and NBD follow §131 (D-A002).
 
 ---
 
@@ -1365,9 +1395,44 @@ A production implementation claiming write support MUST define:
 
 The project SHALL NOT advertise generic read/write support while only the migration read path has been tested.
 
-The library is read-only by design (D-0027): the write functions answer
-as the reference answers on a read-only handle. Write support needs a new
-decision and a contract revision.
+The library is read-only by design (D-0027), with one exception
+(D-A001): the current disk of a powered-off VM opened without a snapshot
+may be written once a switch outside the program turns writes on for the
+transport family. Outside this exception the write functions answer as the
+reference answers on a read-only handle. Any further write support needs a
+new decision and a contract revision.
+
+- **Switches.** `OpenVDDK.hotadd.write` turns writes over HotAdd on,
+  `OpenVDDK.nbd.write` writes over NBDSSL and NBD. Each is read from the
+  configuration file passed to `InitEx` (`"true"`) or from the environment
+  (`OPENVIX_HOTADD_WRITE=1`, `OPENVIX_NBD_WRITE=1`); either is enough.
+  `1`, `true`, `yes` and `on` turn a switch on, `0`, `false`, `no` and
+  `off` leave it off, and any other value leaves it off and is logged as a
+  warning. Both are off by default. `Init` and `InitEx` log each family
+  that is on and the switches that turned it on.
+- **Read-only stays read-only.** An open with
+  `VIXDISKLIB_FLAG_OPEN_READ_ONLY` is read-only in every case, and reads
+  need no switch. An open without it answers `VIX_E_INVALID_ARG` (3) on a
+  read-only connection, and `VIX_E_NOT_SUPPORTED` (6) when no listed
+  transport has its switch on; the reason names the switches.
+- **Functions.** `Write`, `WriteAsync` and `Flush` act on a handle open
+  for writing. `WriteMetadata`, `Shrink` and `Defragment` stay unsupported:
+  11 on a read-only handle, as the reference answers (D-0027), and 6 on a
+  handle open for writing.
+
+For the exception, the definitions this section requires are:
+
+- **snapshot requirements:** no snapshot is named; the VM is powered off;
+  the path is the disk's current top file: a delta when the VM has
+  snapshots, the base disk otherwise. Open checks them after the disk is
+  resolved and before any transport is tried, and a refusal is
+  `VIX_E_FILE_ACCESS_ERROR` (13) over every transport;
+- **transport restrictions:** HotAdd through vCenter (§126.13, D-A003),
+  NBDSSL and NBD (§131, D-A002); dependent flat, sparse and SE sparse disks
+  only, never an independent disk, a raw device mapping or an encrypted
+  disk; never a move from NBDSSL to NBD;
+- **alignment, ordering, durability and flush, error handling, partial
+  failure handling:** as §126.13 and §131 state them for each transport.
 
 ---
 
@@ -1388,6 +1453,11 @@ closed
 ```
 
 where those distinctions matter.
+
+For writes these distinctions are defined per transport in §126.13 (HotAdd)
+and §131 (NBDSSL and NBD). On both, only a successful Flush says that the
+data written before it is stored, and Close flushes before it closes the
+disk.
 
 ---
 
@@ -1590,6 +1660,17 @@ The reference package is kept privately, outside the repository (§121). The
 SHA-256 of the package and of its `libvixDiskLib.so.8.0.3` are recorded in
 `abi/vddk-8.0.3/manifest.json`, so every observation is bound to exact
 reference bytes.
+
+For writes the reference is VMware VDDK 9.1 (D-A001, amending D-0046):
+the package `VMware-vix-disklib-9.1.0.0.25379531.x86_64.tar.gz` (SHA-256
+`6059b6ae75ae197dbfa00df8ca92629c100381b7a0d2e3529c872c08daedf2ff`) and its
+`libvixDiskLib.so.9.1.0.0` (SHA-256
+`c955e08fa8ead54e6b1ae5564a92441f2b4564d97754f07bd99087a8e52bd9f3`). It came
+from VMware's public download page under the same General Terms as the
+8.0.3 package (D-A001 point 5) and is used as 8.0.3 is: kept privately,
+test input only, examined only through its exported functions and by
+running it. Every write observation names it; reads stay compared with
+VDDK 8.0.3 (D-0046).
 
 Reference libraries SHALL be treated as test input, never as build dependencies for the candidate implementation.
 
@@ -3247,7 +3328,9 @@ fixtures that are not kept are removed at the end of their run.
 
 Safety rules for every live case:
 
-- Source disks are read-only.
+- Source disks are read-only. A write case writes only the disk of a
+  target VM made for write tests, and rebuilds that VM from its source when
+  a case breaks it (D-A001).
 - Every mutation SHALL be listed in the reviewed case plan, limited to
   resources created or reserved for the run, and recorded before it
   happens. Mutations include snapshot create/remove, power operations,
@@ -3321,31 +3404,31 @@ revision (§117).
 | D-0004 | 2026-10-01 | Private and proprietary until publication; permissive dependencies only; Apache-2.0 on publication | §88 |
 | D-0005 | 2026-10-01 | Independently authored declarations; official headers only in private layout probes | §10 |
 | D-0006 | 2026-10-01 | Public handles are encoded identifiers, never pointers | §11 |
-| D-0007 | 2026-10-01 | `OpenVix.` configuration and `OPENVIX_` environment namespaces are final | §15 |
+| D-0007 | 2026-10-01 | `OpenVix.` configuration and `OPENVIX_` environment namespaces are final (amended by D-A001: the write switches' variables are read in production) | §15 |
 | D-0008 | 2026-10-01 | Artifact name, SONAME and symbol versions reproduce the reference exactly; the three reference-internal exports are withheld until investigated | §8, §9, §85 |
 | D-0010 | 2026-10-01 | No hosted CI; the containerized `make check` gate runs before every push | §91, §92 |
 | D-0011 | 2026-10-01 | vSphere targets 7.0.3, 8.0.3, 6.7, 6.5; VDDK 7.0.3 as oracle for 6.x (amended by D-0046: VDDK 8.0.3 from 2026-10-26); vSphere/VDDK 9 not targeted | §93–§95 |
 | D-0012 | 2026-10-01 | Library swap test (reference run, in-place swap, candidate run, restore, hash and timing comparison) is the primary end-to-end procedure | §63, §124 |
 | D-0013 | 2026-10-02 | Every project step runs in Linux (WSL2, the pinned container, or lab Linux hosts); nothing is executed on Windows | §82, §120, §125 |
-| D-0014 | 2026-10-02 | HotAdd implementation: direct non-persistent attach, ESXi-owned redo log, journal-before-effect with flock ownership, recovery at Open and Cleanup, LVM host safety enforced by default, no silent fallback | §22–§31, §126 |
+| D-0014 | 2026-10-02 | HotAdd implementation: direct non-persistent attach, ESXi-owned redo log, journal-before-effect with flock ownership, recovery at Open and Cleanup, LVM host safety enforced by default, no silent fallback (amended by D-A003: a disk opened for writing is attached `independent_persistent`) | §22–§31, §126 |
 | D-0015 | 2026-10-02 | Fork-safe load: no threads at load; the Go runtime starts at the first call (post-link relocation exchange, verified by abi-gate and fork-test) | §11.1 |
 | D-0016 | 2026-10-02 | HotAdd on proxies without disk IDs: identification by adapters and disk positions; disk.EnableUUID and disk.AllowDupUUID set before the first attach, as the reference does; position-based device identification as the last resort | §126.4, §126.5 |
 | D-0017 | 2026-10-03 | Read-ahead tolerates reordered requests inside its window (several consumer threads on one stream); blocks released by consumption; requests within four windows ahead extend the window, farther ones are jumps | §126.5 |
 | D-0023 | 2026-10-04 | How HotAdd fails: a path names the chain file read; a missing chain file fails before any attach; 13 when HotAdd cannot be used for the disk; write path as the reference; Close re-signs in after a removed session and is bounded at 150 s | §126.9, §126.11, §126.12 |
 | D-0022 | 2026-10-04 | No message is lost when a consumer registers fewer callbacks: warn without a callback goes to log (marked `WARNING: `), panic to warn then log; a message no callback takes goes to `<tmp>/openvddk-<user>/openvddk-<pid>.log` (private directory, created on first use); `OpenVDDK.trace.file` receives every message | §13, §14 |
 | D-0026 | 2026-10-05 | The HotAdd qualification catalogue is binding; every row names its contract sections; missing tests of §73–§78 and §103 added; recovery utility and diagnostic bundle before HotAdd closes | §73–§78, §103–§105, §128 |
-| D-0027 | 2026-10-05 | Writing is unsupported by design: Write, WriteAsync, WriteMetadata, Shrink and Defragment answer as the reference on a read-only handle; §37 governs any future write support | §37, §48, §98 |
+| D-0027 | 2026-10-05 | Writing is unsupported by design: Write, WriteAsync, WriteMetadata, Shrink and Defragment answer as the reference on a read-only handle; §37 governs any future write support (amended by D-A001: Write, WriteAsync and Flush within §37's exception) | §37, §48, §98 |
 | D-0028 | 2026-10-05 | A failed Read answers as the reference (EIO of the device: 7; a device gone: 1) and logs one warning line | §36, §40, §73 |
 | D-0029 | 2026-10-05 | The binary kit carries `openvddk-admin` and its manual | §127.1, §127.2, §128.4 |
 | D-0030 | 2026-10-05 | Open warns when the source disk shares an LVM physical volume UUID with the worker's own disks in use (a restart with the disk attached may not boot); README remedy; LVM devices file in the bundle | §103, §126.8, §127.2 |
 | D-0031 | 2026-10-05 | Without a snapshot, a powered-off VM's current disk is attached over HotAdd, as the reference does; a running VM still needs a snapshot | §126.1, §126.9 |
-| D-0039 | 2026-10-14 | From 0.7.0 `ListTransportModes` returns `hotadd:nbdssl:nbd` (VMware's order without `file` and `san`); no list means those three; fallback only to the next transport in the consumer's list, never to clear-text NBD unless `nbd` is listed, never after errors §18 excludes | §18, §122 |
+| D-0039 | 2026-10-14 | From 0.7.0 `ListTransportModes` returns `hotadd:nbdssl:nbd` (VMware's order without `file` and `san`); no list means those three; fallback only to the next transport in the consumer's list, never to clear-text NBD unless `nbd` is listed, never after errors §18 excludes (amended by D-A002: a write never moves from NBDSSL to NBD) | §18, §122 |
 | D-0040 | 2026-10-15 | Four-reader NBD performance (N-PERF-2) depends on the lab's state; accepted as lab-dependent, measured against the reference in the lab with every release, not a release condition | §78, §122 |
 | D-0041 | 2026-10-15 | A developer kit (`make devkit`): the binary kit plus a guide written from the contract, four examples and a pkg-config file |
 | D-0043 | 2026-10-16 | Copyright and licence lines in every source file (`make headers`); the published tree carries `Apache-2.0`, the Apache License 2.0 text and a NOTICE naming the original author | §88, §130 |
 | D-0044 | 2026-10-19 | `release/hotadd` retired at 2f729ea: no further builds from it; its records and the newer qualification rows on `main`; every build from `main` (0.7.1 contains every HotAdd fix) | §118, §122 |
 | D-0045 | 2026-10-26 | `OpenVix.nbd.sessions` (1 to 16, default 1): a disk read over NBDSSL or NBD is open in that many NFC sessions, each with its own ticket; read requests go to them in turn, allocation and descriptor queries to the first; a further session that cannot be opened is warned about and left out | §78, §122 |
-| D-0046 | 2026-10-26 | VMware's VDDK 8.0.3 is the only reference library, also for vSphere 6.x (amends D-0011); VDDK 7.0.3 no longer used; records naming it stay as written, facts that rested only on it are checked again with 8.0.3; no VDDK 7 generation artifact | §93–§95 |
+| D-0046 | 2026-10-26 | VMware's VDDK 8.0.3 is the only reference library, also for vSphere 6.x (amends D-0011); VDDK 7.0.3 no longer used; records naming it stay as written, facts that rested only on it are checked again with 8.0.3; no VDDK 7 generation artifact (amended by D-A001: VDDK 9.1 is the reference for writes) | §49, §93–§95 |
 | D-0047 | 2026-10-26 | Links under VDDK 7 names stay documented as a workaround for programs and tools that load only by an older name, worded as not a compatibility claim (the library behaves as VDDK 8.0.3); kits ship no such links (amends §8) | §8, §94 |
 | D-0048 | 2026-10-26 | VMware's `vixDiskLib.nfcAio.Session.BufSizeIn64KB` and `.BufCount` honoured under their own names (sent in the AIO open-session message, zeros without them, as VMware); ReadAsync served through the read-ahead; defaults stay VMware's; the other documented keys checked one by one | §15, §78, §122 |
 | D-0049 | 2026-10-26 | Honoured as observed in VMware's library (NBD-0028): `vixDiskLib.nfc.ReadTimeoutMs`, `nfcAio.SocketOption.SndBufSize`/`RcvBufSize` (own socket) and `ServerSndBufSize`/`ServerRcvBufSize` (socket options message, at most 1 MiB), `tmpDirectory` (own log file), `transport.LogLevel`/`nfc.LogLevel` (messages held back by level); Accept/Request/Fssrvr timeouts left without effect (no effect observed); NFC connect 10 s and 14009 for no connection, as VMware's library answers; defaults otherwise unchanged | §15, §122 |
@@ -3355,6 +3438,10 @@ revision (§117).
 | D-0053 | 2026-11-11 | Interface facts cited from public sources (open-vm-tools, VDDK's API reference, the programming guide, nbdkit; a few only in VMware's NAS VAAI 7.0.1 reference as posted by NetApp); the library's linking facts (SONAME, symbol versions, internal exports) read with standard tools from the distributed library and kept; reference packages and their terms recorded | §50 |
 | D-0054 | 2026-11-14 | The reference's three internal exports counted, not named, in the public tree (manifest and public ELF facts carry the count; full records private); symbol version labels kept, because programs linked against the library print a loader warning per label at every start without them | §8, §9, §50 |
 | D-0055 | 2026-11-22 | The kit is the runtime kit: archive `openvddk-runtime-<version>-<commit>.tar.gz` (named `openvddk-evalkit-…` until 0.7.4, a name that read like a trial version), the same bytes also as `openvddk-runtime.tar.gz` for a fixed "latest" link, `make runtime` with `make evalkit` kept as the old name; the kit carries a `lib64` link to `lib`, the layout nbdkit's VDDK plugin expects under `libdir` | §127 |
+| D-A001 | 2026-11-12 | Writes off by default and switched on outside the program, per transport family (`OpenVDDK.hotadd.write`, `OpenVDDK.nbd.write` in InitEx's file, or `OPENVIX_HOTADD_WRITE`, `OPENVIX_NBD_WRITE`); only the current top file of a powered-off VM's dependent disk, no snapshot named, checked before any transport; WriteMetadata, Shrink and Defragment stay unsupported; VMware VDDK 9.1 is the reference for writes (amends D-0007, D-0027, D-0046) | §15, §37, §38, §49 |
+| D-A002 | 2026-11-12 | Writes over NBDSSL and NBD: the write ticket (`NfcRandomAccessOpenDisk`), one NFC session without read-ahead, a new content ID before the first write, one request of up to 4 MiB in flight, never a move from NBDSSL to NBD; only a successful Flush means stored; after a failed write or flush, Flush and Close return that error (amends D-0039 for writes) | §18, §19, §21, §37, §38, §131 |
+| D-A003 | 2026-11-12 | Writes over HotAdd: attached `independent_persistent`, known by the journal (`disk_mode`, `writable`), identified by disk ID only, the LVM check always enforced, 512-byte blocks, `pwrite` and `fdatasync`, Close flushes and still detaches, moves on only when HotAdd cannot run here (amends D-0014 for writes) | §37, §38, §57, §126 |
+| D-A004 | 2026-11-06 | Before a HotAdd write of a disk that can grow, the room it may need is compared with its datastore's free space (`OpenVDDK.hotadd.write.spaceCheck`: refuse, warn or off); a shortfall moves the open on to NBDSSL or NBD, or answers 8; `openvddk-admin journal` names a writer stuck in I/O | §37, §38, §126.13 |
 | D-0038 | 2026-10-10 | `include/vixDiskLib.h`, a source-compatibility header written by this project and generated from the library's error table: the ABI header plus every `VIX_E_*` code, `VIX_SUCCEEDED`/`VIX_FAILED`, the hardware-version enum and the basic type names | §10, §50 |
 | D-0037 | 2026-10-08 | NBDSSL/NBD development on `main` from 0.7.0; HotAdd acceptance, fixes and its release candidate on branch `release/hotadd` (from `008fd06`) | §118, §122, §128 |
 | D-0036 | 2026-10-08 | QueryAllocatedBlocks over HotAdd asks the host over NFC (vCenter ticket NfcGetVmFiles, the host's backup-NFC address when selected, authd TLS pinned to the ticket's thumbprint, one session per query); vCenter's map, then the whole range, as fallbacks | §35, §50, §98, §109, §122 |
@@ -3455,6 +3542,10 @@ This section records how §22–§31 are implemented (D-0014). The evidence is
 in HOTADD-0001 to HOTADD-0003. A change to any item below is a contract
 change (§117).
 
+A disk opened for writing (§37) differs where §126.1, §126.4, §126.5 and
+§126.7 to §126.10 say so; §126.13 describes writes as a whole (D-A003,
+D-A004). The evidence is in HOTADD-A001 to HOTADD-A008.
+
 ## 126.1 Attach strategy
 
 `DIRECT_ATTACH` (§24) attaches the snapshot point's own disk file to the
@@ -3466,7 +3557,17 @@ child disk, clone or linked clone is created. Two rules apply to the reconfigure
 - **Attach:** the spec carries no file operation and no extraConfig.
 - **Detach:** the spec is a plain device remove without a file operation.
   It is refused unless the device is a disk whose backing is the journaled
-  source path in `independent_nonpersistent` mode.
+  source path in the journaled mode: `independent_nonpersistent` for a
+  read-only record, `independent_persistent` for a writable one. A record
+  without a mode, written before the mode was journaled, is a read-only
+  attachment.
+
+A disk opened for writing is attached in mode `independent_persistent`
+(D-A003). `independent_nonpersistent` would discard every write at detach,
+and plain `persistent` is captured by snapshots of the proxy, which would
+send the writes into a delta in the proxy's directory. Such an attachment
+has no redo log, so §126.2 does not apply to it. VMware's library attaches
+it `persistent` (HOTADD-A001), a known difference.
 
 ## 126.2 Redo log ownership
 
@@ -3515,7 +3616,12 @@ before the attach.
      by item 2, so attachments left by earlier runs can still be removed
      after a clone with the same UUID appeared.
 2. A candidate is accepted only if the guest corroborates it. HotAdd
-   attachments (`independent_nonpersistent`) do not count as its own disks.
+   attachments do not count as its own disks: every
+   `independent_nonpersistent` disk, and every disk at the controller, unit
+   and backing path of a journaled record of this vCenter and proxy that
+   may have attached (D-A003). So a writable attachment
+   (`independent_persistent`) left behind by a crash is not taken for one
+   of the proxy's own disks.
    - **By disk IDs**, when the guest's disks carry IDs: every one of the
      VM's own disks is visible locally under the WWID derived from its
      backing UUID.
@@ -3564,6 +3670,12 @@ opened read-only, re-verified on the open descriptor and set read-only
 `VIXDISKLIB_FLAG_OPEN_UNBUFFERED`; unaligned requests then go through a
 bounce buffer.
 
+A disk opened for writing is accepted only by its disk ID, never by
+position alone, and only with 512-byte logical blocks. Its device is
+opened `O_RDWR` (with `O_DIRECT` as above), re-verified on the open
+descriptor the same way, and its kernel read-only flag is cleared
+(`BLKROSET` 0; D-A003, §126.13).
+
 **Read-ahead.** After two consecutive sequential reads, the device is read
 ahead in aligned blocks. Several blocks are kept in flight ahead of the
 furthest request, and requests inside that window are served from it in
@@ -3575,7 +3687,8 @@ consecutive chunks reach the library slightly out of order).
   blocks in flight (default 8). The defaults use about 16 MiB per open
   disk.
 - **Correctness:** prefetched data cannot go stale, because the attached
-  disk is the snapshot point and nothing writes to it.
+  disk is the snapshot point and nothing writes to it. A handle opened for
+  writing has no read-ahead: every read goes to the device (D-A003).
 - **Errors:** a prefetch that fails is discarded and the request is read
   synchronously, so the consumer sees the device's own error.
 - **Order:** a request inside the window is served from it even when it
@@ -3636,6 +3749,11 @@ controller and unit match the journal. A device still claimed in the guest
 Orphans whose state shows they never attached are closed without any
 vSphere call.
 
+A writable record (D-A003) is detached by a plain device remove; no
+datastore file is ever deleted or renamed for it. Recovery logs a warning
+that names the VM and the disk and says that the disk's content is
+undefined until the copy is run again.
+
 ## 126.8 Host safety
 
 Attaching guest disks lets the proxy's LVM see guest metadata
@@ -3646,6 +3764,9 @@ refusal into a logged warning. SECURITY.md documents the required proxy
 configuration. The answer is remembered for the process and read again
 when `lvmconfig` or a file in `/etc/lvm` or `/etc/lvm/devices` changes;
 a failure to read it is never remembered (D-0050).
+
+For a disk opened for writing the check is always enforced: `warn` does
+not relax it (D-A003).
 
 ## 126.9 Fallback
 
@@ -3662,6 +3783,13 @@ an error instead (HOTADD-0002, §99). When no transport is left, an Open that
 failed because HotAdd could not be used for the disk returns
 `VIX_E_FILE_ACCESS_ERROR`, as the reference does (D-0023); a shared BIOS
 UUID is refused at ConnectEx (D-0018).
+
+An open for writing moves on to the next listed transport whose write
+switch is on only when HotAdd cannot run on this machine (not a VMware VM,
+a direct ESXi connection, no usable proxy, including a proxy that cannot
+give the disk an ID) or when its datastore may not hold the write
+(§126.13). The move is logged at warning level. Every other HotAdd failure
+ends the open (D-A003, D-A004).
 
 ## 126.11 Which file is read
 
@@ -3692,8 +3820,91 @@ right after that point. It exists for tests only. The points are:
 `tests/lab/hotadd-crash.sh` runs the series (§71). A live HotAdd case or
 series is complete only when `tests/lab/proxy-residue.sh` finds no residue
 on the proxy: no extra disk, no `scsiB:U.redo` key naming a redo log, and
-no `*.REDO_*` file in the proxy directory. This check is in addition to
-the §120 records.
+no `*.REDO_*` file in the proxy directory. After a write case, no
+`independent_persistent` attachment named in a journal record is left
+either. This check is in addition to the §120 records.
+
+## 126.13 Writes (D-A003, D-A004)
+
+How a disk opened for writing (§37) is written over HotAdd. The evidence
+is in HOTADD-A001 to HOTADD-A008.
+
+- **Switch and scope:** `OpenVDDK.hotadd.write` or `OPENVIX_HOTADD_WRITE`
+  (§37, D-A001); the scope of §37, over HotAdd through vCenter only. The
+  HotAdd transaction checks the scope again before anything is attached,
+  so a refusal names the rule for writes.
+- **Free space (D-A004):** before a disk that can grow is attached (a thin
+  flat disk, or a delta, known by its chain), the room it may still need
+  (its capacity minus the space its top file uses after a
+  `RefreshStorageInfo` of the VM, plus an eighth for a delta's metadata) is
+  compared with its datastore's free space after a refresh. A datastore
+  that fills during a HotAdd write stops the worker VM with a question
+  instead of failing a call (HOTADD-A003).
+  `OpenVDDK.hotadd.write.spaceCheck` decides what a shortfall does:
+  - `refuse`, the default: HotAdd is not used for this open. The open moves
+    on to NBDSSL or NBD when one of them is listed after HotAdd with its
+    switch on, and otherwise fails with `VIX_E_DISK_FULL` (8). A value that
+    cannot be read counts as a shortfall;
+  - `warn`: the open goes on over HotAdd, and the log says that the
+    datastore may fill and stop the worker;
+  - `off`: no check.
+
+  When the refresh is refused, the cached value is used and the log says
+  so. The check covers only what cannot fit at the start, not other
+  writers on the datastore.
+- **Open:** a write open moves on to another listed transport only when
+  HotAdd cannot run on this machine or its datastore may not hold the
+  write (§126.9), and says so. The disk is attached
+  `independent_persistent` (§126.1).
+- **Journal:** records carry `writable` and `disk_mode`. Records without
+  them are read-only non-persistent attachments. Proxy identification
+  skips every disk named by a journaled record of this vCenter and proxy
+  that may have attached, as well as `independent_nonpersistent` disks
+  (§126.4).
+- **Device:** accepted only by disk ID; when the proxy gives attached disks
+  no ID and may not be configured (`OpenVDDK.hotadd.configureProxy =
+  "false"`), HotAdd is unavailable for the write before anything is
+  attached. The LVM check of §126.8 is always enforced. The device is
+  opened `O_RDWR`, with `O_DIRECT` under `VIXDISKLIB_FLAG_OPEN_UNBUFFERED`,
+  and its kernel read-only flag is cleared. A device whose logical block is
+  not 512 bytes is refused: there is no read-modify-write.
+- **Write:** `Write` checks the handle, the I/O mode, read-only, the
+  buffer and the sector range, then writes the consumer's memory with a
+  `pwrite` loop that retries on `EINTR`, continues after a short write and
+  fails on a write that makes no progress. An unaligned buffer under
+  `O_DIRECT` goes through an aligned bounce buffer. Writes on one handle
+  may run concurrently, as reads do; the order of overlapping writes in
+  flight together is not defined, as for `pwrite`, and a `Write` that has
+  returned is seen by every later `Read`. Writes count with the device gate
+  (D-0024). `WriteAsync` completes on the caller's thread and calls its
+  callback before it returns `VIX_ASYNC`, as the reference does over HotAdd
+  (HOTADD-A001). The handle has no read-ahead.
+- **Durability (§38):** a completed `Write` is acknowledged: the guest
+  kernel has the data (buffered) or the device completed it (`O_DIRECT`).
+  `Flush` calls `fdatasync` on the device, and a success means flushed.
+  Close does the same before it closes the device; the reference does not
+  sync at Close (HOTADD-A001). A failed flush at Close still releases and
+  detaches the device, and Close returns an error saying the data written
+  may not be on the datastore. Close detaches by the journaled vSphere
+  device key, whatever the state of the guest device, and reports a detach
+  that failed.
+- **After writing:** closing the device lets udev probe what was written.
+  When the worker then claims the disk (holders or a mount), Close leaves
+  it attached and keeps the journal record for review, as recovery does
+  (§126.7).
+- **Errors:** `EIO` answers 7 (at `Write` for unbuffered writes, at `Flush`
+  for buffered ones); `ENOSPC`, which the kernel also returns for a device
+  removed from the guest, answers 8; the log says which of the two it may
+  be. These are the reference's codes (HOTADD-A001).
+- **Recovery:** a writable record is detached by a plain device remove,
+  never deleting a datastore file, with a warning that the disk's content
+  is undefined until the copy is run again (§126.7). The kill points of
+  §126.10 apply unchanged (HOTADD-A006). A writer stuck in uninterruptible
+  I/O keeps its record live; `openvddk-admin journal` says so and that a
+  detach through vCenter, or a power-off of the worker, frees it (D-A004).
+- **Logs:** Open logs at warning level that the disk is open for writing,
+  with the VM, the disk and the proxy. Close logs the writes and bytes
+  written apart from the reads.
 
 ---
 
@@ -3730,17 +3941,18 @@ The README, in English, SHALL state:
 
 - what the library is and how it is installed (replace the file, or point
   the consumer's library directory at the kit, e.g. nbdkit's `libdir=`);
-- what works: the HotAdd transport, read-only, Linux x86-64, glibc 2.28 or
-  newer;
-- what does not: NBD, NBDSSL, SAN, local file access and writing, and
-  what a consumer sees when it asks for them;
+- what works: reads over HotAdd, NBDSSL and NBD; writes within §37 once
+  switched on, with what a program must do for them (`Flush` before
+  `Close`); Linux x86-64, glibc 2.28 or newer;
+- what does not: SAN, local file access and writes outside §37, and what a
+  consumer sees when it asks for them;
 - the worker requirements: a VM inside vSphere on a host that sees the
   source datastore, a BIOS UUID unique to that VM, PVSCSI slots, HTTPS to
   vCenter, the vCenter privileges, and that the library sets
   `disk.EnableUUID` and `disk.AllowDupUUID` on first use as the reference
   does;
 - every configuration key of the `OpenVDDK.` / `OpenVix.` namespace with
-  its default;
+  its default, and the write switches' environment variables (§15);
 - where log messages go and how they look (§14, §15);
 - recovery after a crash (Cleanup, the journal directory, `openvddk-admin`);
 - what to collect when reporting a problem (`openvddk-admin bundle`).
@@ -3798,14 +4010,14 @@ transport. Each row names:
 | §64–§67, §63 | end to end through the migration application, cold and warm |
 | §71, §103 | process killed at every journaled step; proxy reset and host management interruption while attached |
 | §72 | for HotAdd: the vCenter session removed and vCenter unreachable at Close; the rest belongs to NBD/NBDSSL |
-| §73 | the source failing under a reader (I/O errors, the attached device removed, the NFS datastore interrupted), the consumer's destination full; short writes and flush failures do not apply to a read-only library (D-0027) |
+| §73 | the source failing under a reader (I/O errors, the attached device removed, the NFS datastore interrupted), the consumer's destination full; for writes (§126.13): the device failing or removed under a writer, a datastore that fills, and the free-space check (HW5, HW6, FS1–FS3) |
 | §74 | open/read/close loops, several processes, several VMs, many disks per VM, a long incremental series; memory, threads, descriptors, sockets, vCenter sessions and tasks, devices and journal watched |
 | §75 | fuzz targets for every parser the library owns (configuration, descriptor, paths, transport list, thumbprint, journal records); NFC frames belong to NBD/NBDSSL |
 | §76 | unmodified consumers: the migration application, nbdkit's VDDK plugin, virt-v2v |
 | §77 | a call tracer and a comparator; traces of the same consumer against both libraries |
 | §78–§80 | sequential and random reads, latency, CPU, memory, network use and attach latency, both libraries on the same infrastructure |
 | §104, §105 | the recovery utility and the diagnostic bundle (128.4) |
-| §126 | negative and failure cases A2–A16 |
+| §126 | negative and failure cases A2–A16; writes HW1–HW9 (§126.13) |
 
 ## 128.4 Recovery utility and diagnostic bundle
 
@@ -3854,3 +4066,73 @@ The published source tree is generated from the project's records by a
 script kept privately. It leaves out the names of labs, places, people and
 organisations, private paths and evidence locations, and performance
 figures.
+
+---
+
+# 131. NBDSSL and NBD Writes
+
+How a disk opened for writing (§37) is written over NBDSSL and NBD
+(D-A002). The evidence is in NET-A001, NET-A002, NET-A003, HOTADD-A001,
+NBD-A001 and NBD-A002.
+
+- **Switch and scope:** `OpenVDDK.nbd.write` or `OPENVIX_NBD_WRITE` (§37,
+  D-A001); the scope checked in Open before any transport is tried. Through
+  vCenter and on a direct connection to an ESXi host (D-0052).
+- **Transports:** a write open tries the listed transports whose switch is
+  on, in the program's order. It never moves from NBDSSL to NBD, for any
+  reason; the move of D-0039 after a refused TLS stream applies to reads
+  only. Every write open over NBD logs at warning level that the data
+  crosses the network unencrypted and unprotected against change.
+- **Open:** the NFC ticket comes from `NfcRandomAccessOpenDisk` with the
+  VM and the disk's device key, as the reference asks for it; the host
+  refuses a write open made with the ticket of a read (NET-A003). The file
+  is opened with flags `0x1a`, in one NFC session whatever
+  `OpenVDDK.nbd.sessions` says, with no read-ahead. Allocation queries and
+  descriptor keys work as for reads.
+- **Content ID:** before the first write of an open, a new
+  `longContentID` (32 lower-case hexadecimal digits from the system's
+  random source) is set with the type 10 message, as the reference does. An
+  open that writes nothing leaves it unchanged. A failure fails the write
+  before any data is sent.
+- **Writes:** one request of up to 4 MiB per call, or several in order,
+  sent in pieces of at most 64 KiB. One request is in flight per handle;
+  reads on the handle, `ReadAsync` included, wait for it, and a write waits
+  for the read in flight. The reply must name the request's offset and
+  length. A call that reaches past the capacity answers
+  `VIX_E_DISK_OUTOFRANGE` (16007) before anything is sent, its part inside
+  the disk included, as the reference does. `WriteAsync` completes on the
+  calling thread and calls back before it returns `VIX_ASYNC`; the
+  reference calls back on a thread of its own (NET-A002), a known
+  difference.
+- **Durability (§38):** a write reply does not mean the data is stored: on
+  a datastore that filled, the host lost part of a request it had
+  acknowledged and reported it only later (NET-A002). Only a successful
+  `Flush` (type 7, direction 2) says that the data written before it is
+  stored. Close flushes before it closes the file, where the reference does
+  not; a failed flush still closes the file and ends the session, and Close
+  returns the error.
+- **Errors:** a request has failed when any `ERROR` frame came for it,
+  whatever its reply says. Error frames are bounded in number per request
+  and in text length.
+  - A refused open answers 13, as reads do (D-0032).
+  - A write or flush that runs out of space answers `VIX_E_DISK_FULL` (8),
+    as the reference does; another refusal `VIX_E_FILE_ERROR` (7).
+  - After a failed write request the host ends the session. Every later
+    `Write` answers 14009, a `Read` answers 1 (as a read of a read-only
+    open does when the host ends its session, NBD-0033), and `Flush` and
+    `Close` answer the first error.
+  - After a failed flush the session goes on: later writes are sent, and
+    `Flush` and `Close` keep answering the first error.
+  - A session lost on the network answers 14009 for the call in flight and
+    every later call, as for reads (NBD-0002); nothing reconnects.
+  - The reference answers `Flush` and `Close` with 0 after a failed write
+    without sending anything (NET-A002), a known difference.
+
+  After any of these the data written since the last successful `Flush`
+  is undefined.
+- **Partial failure:** nothing is attached or journaled. An interrupted
+  write leaves the disk with some writes applied and its new content ID,
+  the state of an interrupted copy; the copy is to be run again.
+- **Logs:** Open logs at warning level that the disk is open for writing,
+  with the transport and the host. Close logs the writes and bytes written
+  apart from the reads.

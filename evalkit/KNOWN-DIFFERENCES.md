@@ -2,7 +2,8 @@
 
 OpenVDDK returns the same error codes as VMware's library in every case
 tested so far, except where this list says otherwise. Each difference is
-deliberate and has a reason.
+deliberate and has a reason. Reads are compared with VMware's VDDK 8.0.3;
+writes with VMware's VDDK 9.1 (see "Writing").
 
 ## Scope
 
@@ -72,21 +73,38 @@ deliberate and has a reason.
   disk); smaller only by the never-written rest of 1 MiB VMFS blocks, which
   reads as zeros. Without that map the whole range is reported. A copier
   that skips unallocated blocks then reads more; the data is the same.
-- **Read-only.** `Open` needs `VIXDISKLIB_FLAG_OPEN_READ_ONLY`; without it
-  on a read-only connection it fails with `VIX_E_INVALID_ARG`, and on a
-  connection for writing with `VIX_E_NOT_SUPPORTED` (6). For nbdkit's VDDK
-  plugin this means `-r` (or `readonly=true`); virt-v2v passes it. On an open
-  disk, `Write`, `WriteMetadata`, `Shrink` and `Defragment` return
-  `VIX_E_FILE_READ_ONLY` (11); `WriteAsync` returns `VIX_ASYNC` and reports
-  11 through its callback; a write call in the other I/O mode than the
-  handle's first write returns `VIX_E_ASYNC_MIXEDMODE_UNSUPPORTED`, as
-  VMware's library does.
+- **Writes are off unless switched on.** VMware's library writes whenever
+  a disk is opened without `VIXDISKLIB_FLAG_OPEN_READ_ONLY`. OpenVDDK
+  writes only once `OpenVDDK.hotadd.write` or `OpenVDDK.nbd.write` is
+  `"true"` in the configuration file passed to `InitEx`, or
+  `OPENVIX_HOTADD_WRITE=1` or `OPENVIX_NBD_WRITE=1` is in the
+  environment, for the transports it names (`README.md`, "Writing").
+  Without the switch, `Open` without the read-only flag fails with
+  `VIX_E_NOT_SUPPORTED` (6) on a connection for writing and with
+  `VIX_E_INVALID_ARG` (3) on a read-only connection. For nbdkit's VDDK
+  plugin this means `-r` (or `readonly=true`) unless writes are on;
+  virt-v2v passes it.
+- **What may be written.** Only the current top file of a powered-off VM's
+  flat, sparse or SEsparse disk, with no snapshot named. VMware's library
+  also writes a snapshot point and a file lower in a snapshot chain, which
+  changes the snapshot's content and breaks the chain: the VM's current
+  state then fails to open with 16008 (HOTADD-A001). OpenVDDK refuses those
+  opens, and running VMs, independent disks, raw device mappings and
+  encrypted disks, with `VIX_E_FILE_ACCESS_ERROR` (13) before any transport
+  is tried.
+- **A read-only handle.** On a disk opened read-only, `Write`,
+  `WriteMetadata`, `Shrink` and `Defragment` return `VIX_E_FILE_READ_ONLY`
+  (11); `WriteAsync` returns `VIX_ASYNC` and reports 11 through its
+  callback; a write call in the other I/O mode than the handle's first
+  write returns `VIX_E_ASYNC_MIXEDMODE_UNSUPPORTED`, as VMware's library
+  does. On a disk open for writing, `WriteMetadata`, `Shrink` and
+  `Defragment` return `VIX_E_NOT_SUPPORTED` (6).
 - **Functions that create or change disks** (`Create`, `CreateChild`,
   `Clone`, `Grow`, `Rename`, `Unlink`, `Attach`, `CheckRepair`,
   `SpaceNeededForClone`, `IsAttachPossible`) fail with an explicit error;
   none of them returns success without doing its work. Reading metadata
   (`GetMetadataKeys`, `ReadMetadata`) works as in VMware's library;
-  `WriteMetadata` returns `VIX_E_FILE_READ_ONLY`.
+  `WriteMetadata` is not provided (above).
 - **Three internal functions** that VMware's library exports for its own
   tooling, and that no public document describes, are not exported.
 - **Programs built against VDDK 7.** They run with OpenVDDK through a link
@@ -206,8 +224,11 @@ deliberate and has a reason.
       effect, or no consistent one, in the cases observed;
     - `vixDiskLib.ssl.enableSslFIPS`: no FIPS mode;
     - `vixDiskLib.disklib.EnableCache`: no such cache;
-    - the SAN lists (no SAN transport), the write timeouts (the library
-      does not write), and `vixDiskLib.phoneHome.*` (no usage data is sent).
+    - the SAN lists (no SAN transport), `vixDiskLib.nfc.WriteTimeoutMs`
+      (writes wait for the host as long as reads do,
+      `vixDiskLib.nfc.ReadTimeoutMs`), `vixDiskLib.nfcFssrvrWrite.TimeoutMs`
+      (the library does not write through the NFC file server), and
+      `vixDiskLib.phoneHome.*` (no usage data is sent).
 
   A `#` outside double quotes starts a comment, as in VMware's guide.
 - **The host stops answering during a read** (NBDSSL and NBD). In our tests
@@ -286,6 +307,63 @@ deliberate and has a reason.
   C++ exception (`basic_string: construction from null is not valid`,
   exit 134); OpenVDDK fails `Open` with 1, as VMware's library answers
   `san:hotadd` there (NBD-0021).
+
+## Writing
+
+Compared with VMware's VDDK 9.1 on the same disks (HOTADD-A001 to
+HOTADD-A008, NET-A001 to NET-A003, NBD-A001, NBD-A002). The switch and the
+disks that may be written are under "Scope" above. Both libraries wrote the
+same bytes and allocated the same space (HOTADD-A004).
+
+- **No silent move between transports.** VMware's library moved a write
+  asked for HotAdd to NBDSSL, and to clear-text NBD, without telling the
+  program. OpenVDDK moves a write on from HotAdd only when HotAdd cannot run
+  on that machine or the datastore may not hold the write, with a warning,
+  and never from NBDSSL to NBD. Each write open over NBD logs a warning that
+  the data crosses the network in clear text.
+- **The HotAdd attachment.** VMware's library attaches the disk to the
+  worker `persistent`; OpenVDDK attaches it `independent_persistent`, so a
+  snapshot of the worker taken during the copy does not capture the
+  writes. A HotAdd write needs the disk to be identified by its disk ID and
+  always needs the worker's LVM restricted (`README.md`, "Writing").
+- **`Close` flushes.** VMware's library syncs only at `Flush`; at `Close`
+  it does not. OpenVDDK flushes at `Close` as well (`fdatasync` over HotAdd,
+  the flush message over NBDSSL and NBD), and `Close` returns an error when
+  that flush fails. Over HotAdd the disk is detached all the same.
+- **`Flush` and `Close` after a failed write** (NBDSSL and NBD). VMware's
+  library returns 0 from both, without sending anything, although data it
+  had already written was lost. OpenVDDK returns the first error of the
+  handle from both. A program that relies on `Flush` to know its copy is
+  stored is told the truth.
+- **Errors during a write** (NBDSSL and NBD). A full datastore answers 8
+  and a lost connection 14009, as in VMware's library (NET-A002);
+  OpenVDDK answers any other refusal by the host with 7. After a failed
+  write the host ends the session; OpenVDDK then answers later writes with
+  14009 and a read with 1.
+- **A full datastore during a HotAdd write.** With both libraries ESXi
+  stops the worker VM with an out-of-space question, and no call returns
+  an error (HOTADD-A003). VMware's library checks nothing beforehand.
+  OpenVDDK compares the room a thin disk or a delta may still need with the
+  datastore's free space before it attaches the disk, and does not use
+  HotAdd when the disk may not fit: the open moves on to NBDSSL or NBD if
+  listed, or fails with 8 (`OpenVDDK.hotadd.write.spaceCheck`).
+- **A device removed from the worker during a HotAdd write.** Both
+  libraries answer the write with 8, the code the kernel's `ENOSPC` maps to;
+  OpenVDDK's log says the device may be gone. VMware's `Close` then returns
+  0 and leaves the disk attached until a `Cleanup`; OpenVDDK's `Close`
+  detaches it by its journal record, and reports a detach that fails.
+- **A written disk the worker claims.** Closing the device lets the
+  worker's udev see what was written. When something on the worker then
+  claims the disk (LVM, MD, a mount), OpenVDDK leaves it attached, with its
+  journal record, for review, instead of pulling it away.
+- **`WriteAsync` over NBDSSL and NBD.** VMware's library returns
+  `VIX_ASYNC` and calls back on a thread of its own. OpenVDDK returns
+  `VIX_ASYNC` too, but writes on the calling thread and calls back before
+  it returns, as both libraries do over HotAdd. A program that waits for
+  the callback sees no difference.
+- **Change tracking.** A write over HotAdd ends the disk's changed block
+  tracking with both libraries; over NBDSSL and NBD it is kept
+  (HOTADD-A004).
 
 ## Performance-related behaviour
 

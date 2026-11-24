@@ -2,7 +2,8 @@
 
 - Date: 2026-10-14
 - Contract: §18, §122 (refines D-0003, D-0037)
-- Status: accepted (2026-10-14).
+- Status: accepted (2026-10-14). *Amended by D-A002 (2026-11-24): a write
+  never moves from NBDSSL to NBD; the step below applies to reads only.*
 
 ## Context
 

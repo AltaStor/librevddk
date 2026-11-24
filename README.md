@@ -5,8 +5,11 @@ virtual disk library of VDDK 8.0.3, for Linux x86-64. It is a drop-in
 replacement: it builds as `libvixDiskLib.so.8.0.3` (with the `.so.8` and
 `.so` links) and has the same C interface, so programs written for
 VixDiskLib, such as nbdkit's VDDK plugin and virt-v2v, load it in place of
-VMware's library without source changes. It reads disks; writing is
-unsupported by design.
+VMware's library without source changes. It reads disks. It also writes
+the current disk of a powered-off VM, over HotAdd, NBDSSL and NBD, but only
+once writes are switched on outside the program: they are off by default
+(CONTRACT.md §37; "Writing" in
+[evalkit/README.md](evalkit/README.md)).
 
 > [!NOTE]
 > **From the author of OpenVDDK:** V2K Migrate, a free tool that moves

@@ -2,7 +2,8 @@
 
 - Date: 2026-11-05, revised 2026-11-12
 - Contract: §37, §38, §57, §117, §126
-- Status: proposed. Writes over HotAdd under the scope and the switch of
+- Status: accepted (2026-11-24, contract 0.44; amends D-0014 for disks
+  opened for writing). Writes over HotAdd under the scope and the switch of
   D-A001. The reference observations HW1 to HW5 were recorded on 2026-11-05
   (HOTADD-A001); HW6 to HW9 on 2026-11-06 (HOTADD-A003, HOTADD-A004,
   HOTADD-A006, HOTADD-A007). Points 3, 4, 8 and 9 differ from the
@@ -116,9 +117,11 @@ the journal instead (point 5).
      written by older versions, are read-only non-persistent attachments.
    - **Proxy identification** (§126.4) still skips
      `independent_nonpersistent` disks. It also skips every disk whose
-     backing path and device key match a journaled record of this vCenter
-     and proxy in any state, so a writable attachment left behind by a
-     crash is never taken for one of the proxy's own disks.
+     controller, unit and backing path match a journaled record of this
+     vCenter and proxy in a state that may have attached, so a writable
+     attachment left behind by a crash is never taken for one of the
+     proxy's own disks. The controller and unit are journaled before the
+     attach, where the device key is known only after it.
    - **Detach guard.** It requires the journaled backing path and the
      journaled mode. A writable record allows only
      `independent_persistent`, a read-only record only
@@ -127,9 +130,12 @@ the journal instead (point 5).
 6. **Device identity and host safety** (§57).
    - **Disk ID required.** A writable attachment is accepted only when
      identified by its disk ID (WWID `naa.<backing UUID>`), never by
-     position alone. When the proxy has no disk ID settings and
-     `OpenVDDK.hotadd.configureProxy` is false, a write open fails before
-     the attach.
+     position alone. When the proxy has no disk ID settings and they
+     cannot be set (`OpenVDDK.hotadd.configureProxy` is false, or vCenter
+     refuses the change), HotAdd is unavailable for the write before the
+     attach: the open moves on to the next listed transport whose switch is
+     on, as point 3 allows for a proxy that cannot be used, and otherwise
+     fails.
    - **LVM check always enforced.** The check of §126.8 is enforced for
      writable opens; `OpenVDDK.hotadd.hostSafety = warn` does not relax
      it.
@@ -243,9 +249,9 @@ the journal instead (point 5).
 
 ## Reference observations before acceptance
 
-These are rows HW1 to HW9 for docs/HOTADD-QUALIFICATION.md, which the
-documentation pull request adds, with VMware VDDK 9.1 first and the
-candidate after it. All nine were run (HOTADD-A001 to HOTADD-A007).
+These are rows HW1 to HW9 of docs/HOTADD-QUALIFICATION.md, with VMware
+VDDK 9.1 first and the candidate after it. All nine were run (HOTADD-A001
+to HOTADD-A007).
 They cover the reference's visible behaviour only (calls to vCenter, the
 attach spec, its log, return codes, system calls on the guest device), as
 for reads (docs/CLEAN-ROOM.md).
@@ -269,10 +275,12 @@ The candidate also needs:
 - unit tests for the switch, the refusals of point 1 and the Close flush
   failure.
 
-## Proposed contract text
+## Contract text
 
-For the maintainer to apply with the contract's own version and section
-numbers.
+Applied in contract 0.44: §126.1, §126.4, §126.5 and §126.7 to §126.10
+carry the changes below, and §126.13 the new subsection, with D-A004's
+check. The point listed below for §126.9, no read-ahead, went into §126.5,
+where the read-ahead is described. The text as decided:
 
 - **§126.1 and §126.5:** a disk opened for writing is attached in mode
   `independent_persistent` instead of `independent_nonpersistent`; the
@@ -320,8 +328,8 @@ numbers.
 - **Ledger.** `Write`, `WriteAsync` and `Flush` gain HotAdd in the
   compatibility ledger (D-A001).
 - **Public wording.** KNOWN-DIFFERENCES says that the disk is attached
-  `independent_persistent` where the reference attaches it `persistent`;
-  the documentation pull request carries it.
+  `independent_persistent` where the reference attaches it `persistent`
+  (contract 0.44).
 - **Not planned in this step:**
   - writes to running VMs or at snapshots;
   - read-modify-write for 4Kn devices;

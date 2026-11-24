@@ -6,9 +6,13 @@ CONTRACT.md §21, §54–§58.
 
 The library connects to vCenter, or directly to an ESXi host; for HotAdd,
 through vCenter only, it attaches disks to the proxy and reads block
-devices; for NBDSSL and NBD it reads from the ESXi host's NFC service. The
-last review is docs/SECURITY-REVIEW-0.7.4.md, of the changes since
-docs/SECURITY-REVIEW-0.7.0.md. The following is enforced:
+devices; for NBDSSL and NBD it reads from the ESXi host's NFC service. When
+writes are switched on (CONTRACT.md §37), it also writes the current disk
+of a powered-off VM over those transports. The last review is
+docs/SECURITY-REVIEW-0.7.4.md, of the changes since
+docs/SECURITY-REVIEW-0.7.0.md; the write path (D-A001 to D-A004) has not
+been reviewed yet, and is reviewed before the first release with it. The
+following is enforced:
 
 - **TLS:** the server's thumbprint (vCenter's, or the ESXi host's on a
   direct connection) is pinned (SHA-1 or SHA-256) whenever it is given,
@@ -43,9 +47,38 @@ docs/SECURITY-REVIEW-0.7.0.md. The following is enforced:
   the connection could use (to check the worker's BIOS UUID); otherwise the
   first Open does. On a direct ESXi connection, PrepareForAccess and
   EndAccess sign in and fail with 20 without changing anything.
-- **Source disks:** read-only. Writes fail with an error. Attachments are
-  `independent_nonpersistent`, so even a stray proxy write lands in a
-  throw-away redo log. The opened device is set read-only (`BLKROSET`).
+- **Source disks:** read-only. An open with
+  `VIXDISKLIB_FLAG_OPEN_READ_ONLY` is read-only in every case. Its
+  attachment is `independent_nonpersistent`, so even a stray proxy write
+  lands in a throw-away redo log; its device is opened read-only and set
+  read-only (`BLKROSET`); its NFC open uses the read-only flags.
+- **Writes are off by default.** An open without the read-only flag fails
+  unless a switch outside the program turns writes on for the transport
+  family: `OpenVDDK.hotadd.write` or `OpenVDDK.nbd.write` in the
+  configuration file passed to `InitEx`, or `OPENVIX_HOTADD_WRITE=1` or
+  `OPENVIX_NBD_WRITE=1` in the environment (D-A001). A program that opens
+  disks writable by default (nbdkit without `-r`) therefore stays
+  read-only after a library upgrade. `Init` logs which switches are on.
+- **What may be written.** Only the current top file of a powered-off VM's
+  dependent disk, with no snapshot named; never a snapshot point, a file
+  lower in the chain, a running VM, an independent disk, a raw device
+  mapping or an encrypted disk. Open checks this before any transport is
+  tried. VMware's library writes into a parent of a snapshot chain when
+  asked and breaks the chain (HOTADD-A001); OpenVDDK refuses.
+- **Writes over HotAdd** (D-A003): the disk is attached
+  `independent_persistent`, so no snapshot of the worker captures the
+  writes; the attachment is known by its journal record. It is accepted only
+  by its disk ID, never by position; the LVM check below is always
+  enforced, whatever `OpenVDDK.hotadd.hostSafety` says; the device is opened
+  `O_RDWR` and its read-only flag cleared only then. Before a disk that can
+  grow is attached, its datastore's free space is checked (D-A004): a
+  datastore that fills during a HotAdd write stops the whole worker VM
+  instead of failing a call.
+- **Writes over NBDSSL and NBD** (D-A002): a write is never moved from
+  NBDSSL to clear-text NBD. A write over NBD crosses the network
+  unencrypted and can be read and changed on the way; each such open logs a
+  warning. List `nbdssl` without `nbd` for writes that must stay
+  encrypted.
 - **Device identity:** see the HotAdd section below.
 - **Journal:** the directory must be owned by the effective user, must not
   be group or other writable, and must not be a symlink. Records are written
@@ -60,7 +93,9 @@ docs/SECURITY-REVIEW-0.7.0.md. The following is enforced:
   zero-skipped piece is accepted only when the read asked for it, and its
   runs must lie inside it in ascending order; each request is completed
   exactly once, never while its data is still being copied into the
-  caller's buffer.
+  caller's buffer. The host's error frames for a write are bounded in
+  number per request and in text length, and the reply to a write must
+  name the request's offset and length.
 - **Several NFC sessions per disk:** with `OpenVDDK.nbd.sessions` above 1,
   each session has its own ticket and pin. Close ends the sessions one
   after the other, so with a host that stopped answering it can take one
@@ -106,6 +141,10 @@ the findings and what was done about each:
   settings added in 0.7.2 and 0.7.3 (zero-skipped reads, the shorter
   cipher offer, sessions per disk, timeouts, log levels).
 
+Not reviewed yet: the write path (D-A001 to D-A004): the switches, the
+write ticket and the NFC write messages, the writable HotAdd attachment and
+its device, and what the worker may activate in data written to a disk.
+
 ## HotAdd: guest content on the proxy (HOTADD-0001, CONTRACT.md §126.8)
 
 When a source disk is attached to the proxy, the proxy kernel and udev read
@@ -133,7 +172,18 @@ The library therefore:
   multipath) on the disk or its partitions, or that is mounted;
 - never mounts or activates guest content (CONTRACT.md §58);
 - after a crash, leaves a device that is claimed on the proxy for manual
-  review instead of detaching it.
+  review instead of detaching it;
+- for a disk opened for writing, always enforces the LVM check, and after
+  Close lets udev see what was written before the disk is released: a disk
+  the worker then claims stays attached, with its journal record, for
+  review (D-A003).
+
+The check covers LVM only. On a worker with `mdadm`'s udev rules, a disk
+that carries a member of an MD array whose home host is the worker's own
+host name is put into an inactive array the moment it is attached, for a
+read and for a write alike. The open is then refused (the disk is claimed),
+but the array stays on the worker (HOTADD-A007). Turn automatic assembly
+off on such a worker (`AUTO -all` in `mdadm.conf`).
 
 **Required proxy configuration.** Use the LVM devices file. It is the
 default on EL9, where `lvmdevices` lists only the proxy's own physical
@@ -157,7 +207,9 @@ opened:
 - the expected SCSI target and LUN 0;
 - the source capacity.
 
-These are checked again on the open descriptor.
+These are checked again on the open descriptor. A disk opened for writing
+must carry the WWID: identification by position is never enough to write
+(§57, D-A003).
 
 ## Reporting
 

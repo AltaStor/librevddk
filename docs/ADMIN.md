@@ -10,8 +10,8 @@ the code behind the recovery the library runs at Open and in
 
 | Command | Needs vCenter | What it does |
 |---|---|---|
-| `journal` | no | lists every journal record: state, source disk, worker slot, guest device, vCenter, process, and whether its owner still runs or it is an orphan (and why: process ended, written before the last boot, released for recovery) |
-| `attachments` | yes | lists the worker VM's disks as vCenter sees them: its own disks, and source disks attached to it, each matched to a journal record and to the guest's block device (by disk ID or by position); a disk with no record is reported and never touched |
+| `journal` | no | lists every journal record: state, source disk, worker slot, guest device, vCenter, process, and whether its owner still runs or it is an orphan (and why: process ended, written before the last boot, released for recovery). A live owner in uninterruptible I/O or with SIGKILL pending, typically a writer whose datastore filled, is named as such, with the way to free its record: detach the disk from the worker in vCenter, or power the worker off (D-A004) |
+| `attachments` | yes | lists the worker VM's disks as vCenter sees them: its own disks, and source disks attached to it, each matched to a journal record and to the guest's block device (by disk ID or by position); a disk with no record is reported and never touched. An `independent_nonpersistent` disk is an attachment; a disk in another mode (an attachment opened for writing is `independent_persistent`) counts as one only when a journal record of this vCenter names it |
 | `reconcile` | yes | the dry run: for every record, what recovery would do now (`detach`, `finish`, `forget`, `leave`, `refuse`, or skipped because the owner is alive) and why; changes nothing |
 | `cleanup` | yes | recovers the orphans of this worker exactly as `VixDiskLib_Cleanup` does; exit status 3 when records remain |
 | `bundle` | optional | writes `openvddk-bundle-<time>.tar.gz` (mode 0600) with the system, device, library, journal, vCenter and log details listed below |
@@ -33,8 +33,15 @@ lock):
 |---|---|---|
 | leave | the record names another vCenter or another worker VM (a cloned worker) | nothing |
 | forget | the transaction never reached the attach | the record is removed |
-| detach | the journaled disk is attached at the journaled controller and unit with the journaled backing | the guest device is released, the disk detached, ESXi's leftover redo files removed, the record removed |
+| detach | the journaled disk is attached at the journaled controller and unit with the journaled backing, in the journaled mode | the guest device is released, the disk detached, ESXi's leftover redo files removed, the record removed |
 | finish | the disk is no longer attached | leftover redo files removed, the record removed |
+
+A record of a disk opened for writing has no redo log: recovery only
+detaches the disk, never deletes or renames a file of it, and logs a
+warning that the disk's content is undefined until the copy is run again
+(CONTRACT.md §126.7). A written disk that the worker claimed when its
+device was closed is left attached by `Close`, with its record, and
+recovery then answers `refuse`.
 | refuse | the attached device is still in use in the guest (a holder or a mount) | nothing; the record is kept for a person to review |
 
 A disk attached to the worker without a journal record (by VMware's

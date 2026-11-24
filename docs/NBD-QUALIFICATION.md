@@ -69,6 +69,29 @@ used e1000, which stopped passing traffic under sustained load (NBD-0005).
 | N-LIST-2 | a worker whose BIOS UUID another VM shares, with several transports listed | 70B | identical after 97d82bc: `ConnectEx` fails with 3 for `hotadd` alone and for no list; with `hotadd:nbdssl:nbd` or `hotadd:nbd` it connects and `Open` reads over the next listed transport (before 97d82bc the candidate failed `ConnectEx` whenever `hotadd` was listed) | NBD-0013 |
 | N-67-1 | the NFC session as ESXi 6.7 takes it (spaced session ID, THUMBPRINT by the greeting, NFC version 2) | 67A | works; also in the HotAdd release 0.6.24 | NBD-0005, HOTADD-0045 |
 
+## Writes (D-A002)
+
+Writes over NBDSSL and NBD (CONTRACT.md §131), compared with VMware VDDK
+9.1, the reference for writes (§49). Environment for every row: vCenter
+8.0.3 b24022515, ESXi 8.0.3 b24022510, VMFS, a target VM made for write
+tests (§120).
+
+| ID | Test | Result | Records |
+|---|---|---|---|
+| NW0 | The NFC messages of a write over NBD: the open flags, the content ID, the write pieces and their reply, the flush, the error at a locked open; the write ticket | the reference's messages recorded from clear-text NBD captures (NBDSSL never decrypted); the write ticket is `NfcRandomAccessOpenDisk`, and the host refuses a write open made with the ticket of a read | NET-A001, NET-A003 |
+| NW1 | Several writes in flight on one session | the host accepts them and completes them out of order; the candidate keeps one in flight per handle | NET-A002 |
+| NW2 | Host errors: a datastore that fills, a write past the end, the connection cut | the reference: 8 for no space, 16007 before anything is sent, 14009; `Flush` and `Close` 0 after a failed write; the host lost part of an acknowledged request; the candidate: the same codes, and `Flush` and `Close` return the first error | NET-A002, NBD-A001 |
+| NW3 | `WriteAsync` | the reference calls back on its own thread after returning 25000; the candidate returns 25000 and calls back on the calling thread first (a deliberate difference) | NET-A002, NBD-A001 |
+| NW4 | NBDSSL writes read back, and a write to the current delta of a VM with a snapshot | read back exactly with both; the delta gets a new content ID, the parent link is kept, the snapshot consolidates normally | NET-A002, NBD-A001 |
+| NW5 | Candidate refusals: writes off, a snapshot named, a file lower in the chain, a running VM | 6 with writes off; 13 for the others, before any NFC session | NBD-A001 |
+| NW6 | A direct connection to an ESXi host: NBDSSL, NBD, `hotadd:nbdssl`, `hotadd` alone | written and read back over NBDSSL and NBD; HotAdd skipped for NBDSSL with a warning; `hotadd` alone 13 | NBD-A002 |
+| NW7 | The same image written by both libraries over NBDSSL | the same bytes, space and descriptor change; change tracking kept | HOTADD-A004 |
+
+Still to test: the privilege of the write ticket with a minimal role (FS2
+of HOTADD-QUALIFICATION), writes on NFS datastores and on vSphere 6.7, 7.0
+and 9.1, and the runs of NBD-A001 with a build from the EL8 container
+(NBD-A002 already used one).
+
 ## Open before the transports are listed (0.7.0)
 
 1. **N-PERF-2** (four readers over NBD): **accepted** as lab-dependent

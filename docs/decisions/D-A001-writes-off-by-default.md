@@ -1,12 +1,16 @@
 # D-A001 — Writes: off by default, switched on outside the program, and the scope of a write
 
 - Date: 2026-11-12
-- Contract: §37, §38
-- Status: proposed. Amends D-0027 for one case: writing the current disk of
-  a powered-off VM, once a switch outside the program turns writes on. The
-  transports are D-A002 (NBDSSL and NBD) and D-A003 (HotAdd).
+- Contract: §15, §37, §38, §49
+- Status: accepted (2026-11-24, contract 0.44). Amends D-0027 for one case:
+  writing the current disk of a powered-off VM, once a switch outside the
+  program turns writes on. The transports are D-A002 (NBDSSL and NBD) and
+  D-A003 (HotAdd). Also amends D-0007 for the switches' environment
+  variables, read in production (point 2), and D-0046 for the reference of
+  writes.
 - Reference for writes: VMware VDDK 9.1. Every write observation is made
-  with it; VDDK 8.0.3 stays the reference for reads (D-0046).
+  with it; VDDK 8.0.3 stays the reference for reads (D-0046). The package
+  and library hashes are in CONTRACT.md §49.
 
 ## Context
 
@@ -79,8 +83,11 @@ VMware's library also writes where this decision refuses (HOTADD-A001):
      this decision: `VIX_E_NOT_SUPPORTED` (6) on a read-write connection,
      whose reason names the switches of the listed transports, and
      `VIX_E_INVALID_ARG` (3) on a read-only connection.
-   - **Names.** The keys and the variables are proposals, to be agreed
-     with the maintainer.
+   - **Names.** The variables are named after the keys, with the
+     project's `OPENVIX_` prefix (D-0007, D-0051). D-0007 makes the
+     project's variables developer and test overrides; this decision
+     amends it for these two variables, which are read in production
+     (CONTRACT.md §15).
 
 3. **Transports.** A write open tries the listed transports whose switch is
    on, in the program's order, and passes the others over. D-A002 adds
@@ -105,10 +112,11 @@ VMware's library also writes where this decision refuses (HOTADD-A001):
    the reference for reads is (CLEAN-ROOM.md): through its exported
    functions, from a test program, with the observations recorded.
 
-## Proposed contract text
+## Contract text
 
-For the maintainer to apply with the contract's own version and section
-numbers. §37 keeps its list of required definitions and ends with:
+Applied in contract 0.44: §37 keeps its list of required definitions and
+ends with the text below, with the switches and the codes of point 2
+spelled out; §15 names the variables and §49 the reference for writes.
 
 > The library is read-only by design (D-0027), with one exception
 > (D-A001): the current disk of a powered-off VM opened without a snapshot
@@ -136,8 +144,9 @@ numbers. §37 keeps its list of required definitions and ends with:
   point 1. `WriteMetadata`, `Shrink` and `Defragment` stay unsupported.
 - **Public wording.** README, KNOWN-DIFFERENCES and the guides change "read
   only by design" to: reads; writes to powered-off VMs' current disks, off
-  unless switched on outside the program. That wording comes with the
-  documentation pull request.
+  unless switched on outside the program. Done with contract 0.44, in the
+  kit's README and KNOWN-DIFFERENCES, the developer guide, SECURITY.md,
+  ARCHITECTURE.md, CONTRIBUTING.md and the compatibility matrix.
 - **Security review.** A review of the write path comes before the first
-  release with it.
+  release with it; SECURITY.md says it has not been done yet.
 - **Not planned:** writes to running VMs or at snapshots.
