@@ -144,6 +144,8 @@ the findings and what was done about each:
 Not reviewed yet: the write path (D-A001 to D-A004): the switches, the
 write ticket and the NFC write messages, the writable HotAdd attachment and
 its device, and what the worker may activate in data written to a disk.
+What a host sends to a session open for writing is fuzzed: the ERROR frames,
+the write and flush replies, and the session that receives them.
 
 ## HotAdd: guest content on the proxy (HOTADD-0001, CONTRACT.md §126.8)
 

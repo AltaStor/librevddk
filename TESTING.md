@@ -11,7 +11,7 @@ CONTRACT.md §59–§78; the binding list of HotAdd tests is
 | `fmt-check`, `vet` | formatting, static checks |
 | `test`, `race` | unit tests (handles, config, logx, ovxtool) and the race detector |
 | `fuzz-smoke` | configuration parser fuzzing, 20 s |
-| `fuzz` | every fuzz target (configuration, descriptor, `vmxSpec`, paths, transport list, thumbprint, UUIDs, SCSI addresses, LVM output, handles, journal records) for `FUZZTIME` each (default 60 s); failing inputs are kept under `testdata/fuzz` and replayed by `test` (§75) |
+| `fuzz` | every fuzz target (configuration, descriptor, `vmxSpec`, paths, transport list, thumbprint, UUIDs, SCSI addresses, LVM output, handles, journal records, NFC replies and sessions for reads and writes) for `FUZZTIME` each (default 60 s); failing inputs are kept under `testdata/fuzz` and replayed by `test` (§75) |
 | `lib` | the shared library builds with the pinned toolchain |
 | `abi-gate` | ELF identity, SONAME, links, version nodes, export set and bindings, dependency set, glibc floor, hardening (§9, §85), deferred Go runtime start and versioned imports (§11.1) |
 | `cabi-guard` | every Go export called from C starts the Go runtime first (§11.1) |
