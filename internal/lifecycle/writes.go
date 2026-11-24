@@ -67,7 +67,7 @@ func writesSwitch(getenv func(string) string, cfg *config.Config, cfgName string
 			on, ok := switchValue(v)
 			switch {
 			case !ok:
-				problems = append(problems, fmt.Sprintf("%s=%q is not 1, true, 0 or false; writes over %s stay off from the environment", sw.Env, v, sw.Label))
+				problems = append(problems, fmt.Sprintf("%s=%q is not %s; writes over %s stay off from the environment", sw.Env, v, switchValues, sw.Label))
 			case on:
 				by[sw.Family] = append(by[sw.Family], sw.Env+"="+v)
 			}
@@ -86,12 +86,15 @@ func keySwitch(cfg *config.Config, where string, sw Switch, by map[Family][]stri
 	on, ok := switchValue(v)
 	switch {
 	case !ok:
-		problems = append(problems, fmt.Sprintf("%s = %q in %s is not true or false; writes over %s stay off from that file", sw.Key, v, where, sw.Label))
+		problems = append(problems, fmt.Sprintf("%s = %q in %s is not %s; writes over %s stay off from that file", sw.Key, v, where, switchValues, sw.Label))
 	case on:
 		by[sw.Family] = append(by[sw.Family], fmt.Sprintf("%s = %q in %s", sw.Key, v, where))
 	}
 	return problems
 }
+
+// switchValues names the values switchValue accepts, for the warning about any other value.
+const switchValues = "a switch value (1, true, yes or on; 0, false, no or off)"
 
 // switchValue reads a switch: 1, true, yes or on turn it on; 0, false, no or off leave it off; ok is false for any
 // other value.

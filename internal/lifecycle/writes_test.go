@@ -49,6 +49,11 @@ func TestWritesSwitch(t *testing.T) {
 			if len(problems) != c.problems {
 				t.Errorf("problems %q, want %d", problems, c.problems)
 			}
+			for _, p := range problems {
+				if !strings.Contains(p, "1, true, yes or on; 0, false, no or off") {
+					t.Errorf("problem %q does not name every switch value", p)
+				}
+			}
 		})
 	}
 }
