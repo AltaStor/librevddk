@@ -159,8 +159,11 @@ NET-A002 then recorded how the host fails writes:
        `VIX_E_FILE_ERROR` (7).
    - **After a failed write.** The host ends the session after a failed
      write request (NET-A002). The call answers the code above. Every later
-     call on the handle answers 14009, and Close answers the first error.
-     A failed flush leaves the session working, as on the host.
+     write or flush on the handle answers 14009, and Close answers the
+     first error. A read answers 1, as a read of a read-only open does when
+     the host ends its session (NBD-0033), and so does a read during which
+     the host ends the session. A failed flush leaves the session working,
+     as on the host.
    - **Lost session.** A session lost on the network answers 14009 for the
      call in flight and every later call, as for reads (NBD-0002). Nothing
      reconnects, as in VMware's library.
@@ -252,7 +255,8 @@ new section after the one for HotAdd decisions:
 >   Flush and Close return that error.
 > - **Errors:** a request has failed when any `ERROR` frame came for it.
 >   A refused open answers 13; out of space 8; another refusal 7; after a
->   failed write request, and on a lost session, 14009. After any of these
+>   failed write request, and on a lost session, 14009, apart from a read
+>   after the host ended the session, which answers 1. After any of these
 >   the data written since the last successful Flush is undefined.
 > - **Partial failure:** nothing is attached or journaled; an interrupted
 >   write leaves some writes applied, and the copy is to be run again.

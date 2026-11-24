@@ -399,9 +399,14 @@ const sessionEndedNote = "The ESXi host ended the NFC session for this disk: it 
 	"NFC memory (VMware KB 389223). Transfers already running are not affected."
 
 // noteSessionEnded logs sessionEndedNote the first time a read of the disk
-// fails because the host ended the session.
+// fails because the host ended the session. On a disk open for writing whose
+// write path already saw the session end, it ended at a failed write or
+// flush, whose own error was logged (D-A002), and the note is left out.
 func (n *nbdDisk) noteSessionEnded(err error) {
 	if n == nil || !errors.Is(err, nfc.ErrSessionEnded) {
+		return
+	}
+	if n.w != nil && n.w.sessionEnded() {
 		return
 	}
 	if n.ended.CompareAndSwap(false, true) {

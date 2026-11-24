@@ -41,14 +41,35 @@ type nbdWrite struct {
 	firstErr error      // the first failed write or flush; Flush and Close return it
 }
 
-// read runs a read of the disk with no write in flight.
+// read runs a read of the disk with no write in flight. Once the session has ended a read answers as a read of a
+// read-only open does: 1 when the host ended it (NBD-0033), 14009 when it was lost (NBD-0002).
 func (w *nbdWrite) read(read func() error) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if w.ended {
-		return errSessionEnded
+		return w.endedErr()
 	}
 	return read()
+}
+
+// endedErr is errSessionEnded with the reason the session ended: the session's own error, or the end of the session
+// the host sends after a refused write (NET-A002).
+func (w *nbdWrite) endedErr() error {
+	var he *nfc.HostError
+	switch err := w.s.Err(); {
+	case err != nil:
+		return fmt.Errorf("%w: %w", errSessionEnded, err)
+	case errors.As(w.firstErr, &he):
+		return fmt.Errorf("%w: %w", errSessionEnded, nfc.ErrHostEnded)
+	}
+	return errSessionEnded
+}
+
+// sessionEnded reports whether the handle's write path has seen its session end.
+func (w *nbdWrite) sessionEnded() bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.ended
 }
 
 // write sends len(p) bytes at byte offset off in requests of at most nfc.MaxWriteRequest bytes, one at a time; the

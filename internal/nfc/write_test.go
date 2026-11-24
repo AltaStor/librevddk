@@ -102,8 +102,8 @@ func TestWriteNoSpace(t *testing.T) {
 	if err := c.Write(h, 0, pattern(512, 3)); err == nil {
 		t.Fatal("a write after the host ended the session succeeded")
 	}
-	if !errors.Is(c.Err(), ErrHostEnded) {
-		t.Errorf("session error %v, want ErrHostEnded", c.Err())
+	if !errors.Is(c.Err(), ErrHostEnded) || !errors.Is(c.Err(), ErrSessionEnded) {
+		t.Errorf("session error %v, want ErrHostEnded, which matches ErrSessionEnded", c.Err())
 	}
 	c.Close()
 }

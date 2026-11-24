@@ -6,6 +6,7 @@ package core
 import (
 	"errors"
 	"regexp"
+	"strings"
 	"testing"
 	"time"
 	"unsafe"
@@ -142,8 +143,10 @@ func TestNBDNoWriteKeepsContentID(t *testing.T) {
 	}
 }
 
-// A write refused for lack of space answers 8; the host then ends the session, so later calls answer 14009, while
-// Flush and Close return the first error, where the reference returns 0 (NET-A002, D-A002).
+// A write refused for lack of space answers 8; the host then ends the session, so later writes answer 14009 and
+// reads 1, as a read of a read-only open answers when the host ends its session (NBD-0033). Flush and Close return
+// the first error, where the reference returns 0 (NET-A002, D-A002). The note on the host's NFC memory is left out:
+// the failed write is the reason.
 func TestNBDWriteNoSpace(t *testing.T) {
 	f := &fakeWriter{failNext: noSpace}
 	h := writableNBD(t, f)
@@ -153,9 +156,15 @@ func TestNBDWriteNoSpace(t *testing.T) {
 	if err := write(h, 8, 8); vix.ToCode(err) != vix.EHostConnRefused {
 		t.Fatalf("Write after the failed write: %v, want 14009", err)
 	}
+	logged := captureLevels(t)
 	buf := make([]byte, 512)
-	if err := Read(h, 0, 1, unsafe.Pointer(&buf[0])); vix.ToCode(err) != vix.EHostConnRefused {
-		t.Fatalf("Read after the failed write: %v, want 14009", err)
+	if err := Read(h, 0, 1, unsafe.Pointer(&buf[0])); vix.ToCode(err) != vix.EFail {
+		t.Fatalf("Read after the failed write: %v, want 1", err)
+	}
+	for _, l := range *logged {
+		if strings.Contains(l.text, "NFC memory") {
+			t.Errorf("note logged after a failed write: %s", l.text)
+		}
 	}
 	if err := Flush(h); vix.ToCode(err) != vix.EDiskFull {
 		t.Fatalf("Flush after the failed write: %v, want 8", err)
@@ -207,11 +216,36 @@ func TestNBDWriteOtherFailures(t *testing.T) {
 	if err := write(h, 0, 8); vix.ToCode(err) != vix.EHostConnRefused {
 		t.Fatalf("Write on a lost session: %v, want 14009", err)
 	}
+	buf := make([]byte, 512)
+	if err := Read(h, 0, 1, unsafe.Pointer(&buf[0])); vix.ToCode(err) != vix.EHostConnRefused {
+		t.Fatalf("Read on a lost session: %v, want 14009", err)
+	}
 	if err := Flush(h); vix.ToCode(err) != vix.EHostConnRefused {
 		t.Fatalf("Flush on a lost session: %v, want 14009", err)
 	}
 	if err := Close(h); vix.ToCode(err) != vix.EHostConnRefused {
 		t.Fatalf("Close on a lost session: %v, want 14009", err)
+	}
+}
+
+// A read of a disk open for writing whose session the host ends on its own answers 1, as a read of a read-only open
+// does (NBD-0033), and the note on the host's NFC memory is logged once.
+func TestNBDReadWhenHostEnds(t *testing.T) {
+	if code := nbdReadCode(nfc.ErrHostEnded); code != vix.EFail {
+		t.Fatalf("a read the host ended: %d, want 1", code)
+	}
+	logged := captureLevels(t)
+	n := &nbdDisk{w: &nbdWrite{s: &fakeWriter{err: nfc.ErrHostEnded}}}
+	n.noteSessionEnded(nfc.ErrHostEnded)
+	n.noteSessionEnded(nfc.ErrHostEnded)
+	notes := 0
+	for _, l := range *logged {
+		if strings.Contains(l.text, "NFC memory") {
+			notes++
+		}
+	}
+	if notes != 1 {
+		t.Errorf("%d notes, want 1: %v", notes, *logged)
 	}
 }
 

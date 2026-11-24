@@ -5,7 +5,6 @@ package nfc
 
 import (
 	"encoding/binary"
-	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -36,8 +35,8 @@ const (
 )
 
 // ErrHostEnded: the host sent the end-of-session frame on its own, as it does after a failed write request
-// (NET-A002).
-var ErrHostEnded = errors.New("nfc: the host ended the session")
+// (NET-A002). It matches ErrSessionEnded, so a read that meets it answers as a read of a read-only open does.
+var ErrHostEnded = fmt.Errorf("nfc: %w", ErrSessionEnded)
 
 // writeOp is what a request of a write open adds to an Op.
 type writeOp struct {
