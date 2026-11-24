@@ -1,42 +1,54 @@
-# OpenVDDK
+# LibreVDDK
 
-OpenVDDK is an independent implementation of VMware's VixDiskLib, the
-virtual disk library of VDDK 8.0.3, for Linux x86-64. It is a drop-in
-replacement: it builds as `libvixDiskLib.so.8.0.3` (with the `.so.8` and
-`.so` links) and has the same C interface, so programs written for
-VixDiskLib, such as nbdkit's VDDK plugin and virt-v2v, load it in place of
-VMware's library without source changes. It reads disks. It also writes
-the current disk of a powered-off VM, over HotAdd, NBDSSL and NBD, but only
-once writes are switched on outside the program: they are off by default
-(CONTRACT.md §37; "Writing" in
-[evalkit/README.md](evalkit/README.md)).
+LibreVDDK is a free and open-source VMware Dependency Delete Kit (VDDK), not to
+be confused with the VMware Virtual Disk Development Kit, which uses the same acronym.
 
-> [!NOTE]
-> **From the author of OpenVDDK:** V2K Migrate, a free tool that moves
-> VMware VMs to Apache CloudStack and Proxmox VE and reads their disks
-> with OpenVDDK, is available as a beta. What it does:
-> [v2kmigrate.com](https://v2kmigrate.com/). To get it,
-> [sign up](https://v2kmigrate.com/#waitlist): the download link and how
-> to report issues come by email.
+LibreVDDK is a fork of OpenVDDK, which was originally written by Andrija Panić and reads virtual disks only.
+LibreVDDK also writes disks and aims to cover more of the public API and behaviour of VMware's VDDK.
+What it implements today is listed function by function in [COMPATIBILITY.md](COMPATIBILITY.md).
+
+LibreVDDK is an independent implementation of VMware's VixDiskLib, the virtual disk library of
+VMware's VDDK 8.0.3, for Linux x86-64.
+It is a drop-in replacement: it builds as `libvixDiskLib.so.8.0.3` (with the `.so.8` and `.so` links)
+and has the same C interface, so programs written for VixDiskLib, such as AltaStor Backup & Replication,
+nbdkit's VDDK plugin and virt-v2v, load it in place of VMware's library without source changes.
+
+LibreVDDK reads disks at a snapshot or, on a powered-off VM, as they are.
+It also writes the current disk of a powered-off VM over HotAdd, NBDSSL and NBD, with no snapshot named.
+Writes are off by default and are switched on explicitly (CONTRACT.md §37; "Writing" in
+[evalkit/README.md](evalkit/README.md)); so far they have been tested on vSphere 8.0.3 only.
+
+The library names itself LibreVDDK in its first log line and in the
+client identification it sends to vCenter and ESXi, and the kits are
+`librevddk-runtime-…` and `librevddk-devkit-…`, with the pkg-config
+module `librevddk` (`openvddk` still works). Log lines start with the
+function they belong to (`VixDiskLib_OpenEx: …`) or with their text.
+Elsewhere OpenVDDK's names remain, so existing setups keep working: the `OpenVDDK.`
+configuration keys, the `OPENVIX_` environment variables, the `openvddk-admin`
+program and the Go module path.
 
 It was written from public documentation, the facts any program needs to
 link against the library, and observation of what VMware's library visibly
 does when it runs. It contains no VMware code. How each behaviour was
 learned is recorded in [docs/CLEAN-ROOM.md](docs/CLEAN-ROOM.md),
 [PROVENANCE.md](PROVENANCE.md) and the observation records under
-[docs/observations/](docs/observations/).
+[docs/observations/](docs/observations/); for writes, in decisions D-A001 to
+D-A004 under [docs/decisions/](docs/decisions/).
 
 ## Status
 
-This is the source of **OpenVDDK 0.7.5** (released 2026-11-22; release
-notes: [docs/RELEASE-NOTES-0.7.5.md](docs/RELEASE-NOTES-0.7.5.md)). The files
-of each GitHub release are built from that release's tag in this repository.
+**LibreVDDK 26.11.26** is the first version of the project.
+Its [CHANGELOG.md](CHANGELOG.md) lists LibreVDDK's changes since OpenVDDK 0.7.5.
 
-A library built from the 0.7.4 source has a different file hash from the 0.7.4
-library binary distributed before the source was published (SHA-256
-`785883f666cf2d7ad2b42df0d66325a5021f2338a7af6ca1a1ccc25ff5f806e1`): the
-Go module path changed to `github.com/openvddk/openvddk`, and the library
-records the commit it was built from. There is no functional difference.
+**LibreVDDK 26.11.26** is based on **OpenVDDK 0.7.5** (released 2026-11-22; release notes:
+[docs/RELEASE-NOTES-0.7.5.md](docs/RELEASE-NOTES-0.7.5.md)) with LibreVDDK's
+writes over HotAdd, NBDSSL and NBD on top (D-A001 to D-A004).
+
+LibreVDDK's build version is the date of its source in the form YY.MM.DD,
+such as 26.11.26. The [VERSION](VERSION) file holds it, and the build
+stamps it into the library and `openvddk-admin`: it is the `<version>` of
+the library's first log line, of the client identification sent to vCenter
+and ESXi, and of the kit archive names (CONTRACT.md §86).
 
 Pull requests are welcome: please read CONTRIBUTING.md first, and for
 anything larger than a small fix open an issue before you start.
@@ -50,6 +62,7 @@ problems" below).
   vCenter and by signing in to an ESXi host directly, including a
   standalone host without vCenter
   ([docs/COMPATIBILITY-MATRIX.md](docs/COMPATIBILITY-MATRIX.md)).
+  Writes were tested on vSphere 8.0.3 on VMFS only ("Writing" in the matrix).
 - Transports HotAdd, NBDSSL and NBD, listed as `hotadd:nbdssl:nbd`
   (D-0039). HotAdd is used through vCenter.
 - Linux x86-64 with glibc 2.28 or newer.
@@ -120,7 +133,7 @@ OPENVIX_REF_DIR=/path/to/vmware-vix-disklib-distrib \
 | `configs/` | Lab description schema (example only) |
 | `evalkit/`, `devkit/` | User guide, known differences, developer guide and examples shipped in the kits |
 | `docs/decisions/` | Decision records D-0001… |
-| `docs/observations/` | Observation records: how VMware's library behaves, and how OpenVDDK compares |
+| `docs/observations/` | Observation records: how VMware's library behaves, and how this library compares |
 
 The governing specification is [CONTRACT.md](CONTRACT.md); the
 architecture is in [ARCHITECTURE.md](ARCHITECTURE.md) and the security
@@ -128,17 +141,16 @@ posture in [SECURITY.md](SECURITY.md).
 
 ## Reporting problems
 
-Open an issue in this repository for a reproducible problem, a
-compatibility report (including "it simply worked with tool X") or a
-question about behaviour.
+Open an issue in this repository for a reproducible problem, a compatibility report
+(including "it simply worked with tool X") or a question about behaviour.
 
 - Name the exact build: the first line of the library's log reads
-  `OpenVDDK: VixDiskLib: OpenVDDK <version> (<commit>) ...`.
+  `LibreVDDK <version> (<commit>) ...`.
 - Remove sensitive details before you post: passwords, tokens, keys,
   session tickets; host names, IP addresses and user names of your vCenter
   and ESXi hosts; VM names, datastore names and paths that identify
   people, organisations or projects; certificate thumbprints. Keep versions, transport,
-  datastore type, error codes and the OpenVDDK log lines around the
+  datastore type, error codes and the library's log lines around the
   problem.
 - Do not post VMware's library files, disassembly of them or their log
   text. If you compare with VMware's library, describe what it did
@@ -149,24 +161,30 @@ as [SECURITY.md](SECURITY.md) describes.
 
 ## Support
 
-OpenVDDK is a community project. It is provided under the Apache License
-2.0 on an "AS IS" basis, without warranties or conditions of any kind, and
-without liability for damages (sections 7 and 8 of the licence). There is
-no guaranteed response time. Questions and problem reports go to the issue
-tracker; other enquiries to hello@openvddk.com.
+LibreVDDK is provided under the Apache License 2.0 on an "AS IS" basis,
+without warranties or conditions of any kind, and without liability for
+damages (sections 7 and 8 of the licence). There is no guaranteed response time.
+Questions, problem reports and other enquiries go to the issue
+tracker of github.com/AltaStor/LibreVDDK.
 
 ## Licence
 
-Licensed under the Apache License, Version 2.0: see [LICENSE](LICENSE) and
-[NOTICE](NOTICE). The third-party modules compiled into binary builds and
-their licences are listed in [THIRD-PARTY-NOTICES](THIRD-PARTY-NOTICES).
-Every source file carries an `SPDX-License-Identifier: Apache-2.0` line.
+Licensed under the Apache License, Version 2.0: see [LICENSE](LICENSE) and [NOTICE](NOTICE).
+The third-party modules compiled into binary builds and their licences are listed in
+[THIRD-PARTY-NOTICES](THIRD-PARTY-NOTICES).
 
-Copyright 2026 Andrija Panić and the OpenVDDK contributors. OpenVDDK was
-originally written by Andrija Panić.
+Every source file carries an `SPDX-License-Identifier: Apache-2.0` line and the copyright line of its author.
+OpenVDDK's files keep OpenVDDK's line, and the files LibreVDDK changed add Norvitex OÜ's line for the changes.
+A new file names its author or, by default, the LibreVDDK contributors (CONTRIBUTING.md).
 
-VMware, vSphere, vCenter, ESXi and VDDK are trademarks of Broadcom Inc. or
-its subsidiaries. OpenVDDK is independent and is not affiliated with or
-endorsed by Broadcom Inc. or its subsidiaries.
+Copyright 2026 Andrija Panić and the OpenVDDK contributors.  
+Copyright 2026 Norvitex OÜ (AltaStor.com), for LibreVDDK's changes.
 
-Contact: hello@openvddk.com
+OpenVDDK was originally written by Andrija Panić.
+
+VMware, vSphere, vCenter, ESXi and VDDK are trademarks of Broadcom Inc. or its subsidiaries.
+
+LibreVDDK and OpenVDDK are independent projects and are not affiliated with or endorsed
+by Broadcom Inc. or its subsidiaries.
+
+Contact: librevddk@altastor.com

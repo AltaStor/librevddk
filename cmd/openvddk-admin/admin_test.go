@@ -103,6 +103,25 @@ func TestBundleArchive(t *testing.T) {
 	}
 }
 
+// The bundle names a LibreVDDK library and an OpenVDDK one by the client identification each carries.
+func TestLibraryKind(t *testing.T) {
+	dir := t.TempDir()
+	for _, c := range []struct{ content, kind string }{
+		{"\x00LibreVDDK/\x00", "LibreVDDK "},
+		{"\x00OpenVDDK/\x00", "OpenVDDK "},
+		{"\x00VMware\x00", "VMware VDDK, another build"},
+		{"\x00nothing known\x00", "unknown"},
+	} {
+		p := filepath.Join(dir, "lib")
+		if err := os.WriteFile(p, []byte(c.content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if got := libraryKind(p, "not the reference"); !strings.HasPrefix(got, c.kind) {
+			t.Errorf("%q: kind %q, want %q...", c.content, got, c.kind)
+		}
+	}
+}
+
 func TestWriteJournal(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "journal")
 	j, err := hotadd.OpenJournal(dir)

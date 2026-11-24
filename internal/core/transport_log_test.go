@@ -1,4 +1,5 @@
 // Copyright 2026 Andrija Panic and the OpenVDDK contributors
+// Copyright 2026 Norvitex OU (AltaStor.com) (modifications)
 // SPDX-License-Identifier: Apache-2.0
 
 package core
@@ -36,7 +37,7 @@ func captureLevels(t *testing.T) *[]leveled {
 // two error lines per disk), and stays a warning as the last listed
 // transport; other failures stay warnings. The test checks the exact lines.
 func TestTransportFailureLogLevel(t *testing.T) {
-	const p = "OpenVDDK: VixDiskLib: VixDiskLib_OpenEx: "
+	const p = "VixDiskLib_OpenEx: "
 	net := []transport.Mode{transport.NBDSSL, transport.NBD}
 	for _, c := range []struct {
 		m    transport.Mode

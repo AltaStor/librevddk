@@ -1,4 +1,5 @@
 # Copyright 2026 Andrija Panic and the OpenVDDK contributors
+# Copyright 2026 Norvitex OU (AltaStor.com) (modifications)
 # SPDX-License-Identifier: Apache-2.0
 #
 # Build and verification entry points. Run inside the pinned build
@@ -31,8 +32,13 @@ SONAME      := libvixDiskLib.so.8.0.3
 OUT         ?= build
 LIBDIR      := $(OUT)/lib
 BINDIR      := $(OUT)/bin
-VERSION     ?= 0.7.5
-COMMIT      ?= $(shell git rev-parse --short=12 HEAD 2>/dev/null || echo uncommitted)$(shell git diff --quiet HEAD 2>/dev/null || echo -dirty)
+# The build version is the date of the source in the form YY.MM.DD, such as 26.11.25 (CONTRACT.md §86).
+# The VERSION file is its only source; make VERSION=... on the command line overrides it for one build.
+VERSION     := $(strip $(shell cat $(CURDIR)/VERSION 2>/dev/null))
+ifeq ($(shell echo '$(VERSION)' | grep -xE '[0-9]{2}\.(0[1-9]|1[0-2])\.(0[1-9]|[12][0-9]|3[01])'),)
+$(error VERSION must hold the build version in the form YY.MM.DD, such as 26.11.25, not "$(VERSION)")
+endif
+COMMIT     ?= $(shell git rev-parse --short=12 HEAD 2>/dev/null || echo uncommitted)$(shell git diff --quiet HEAD 2>/dev/null || echo -dirty)
 
 export GOAMD64     := v1
 export CGO_ENABLED := 1

@@ -1,4 +1,5 @@
 // Copyright 2026 Andrija Panic and the OpenVDDK contributors
+// Copyright 2026 Norvitex OU (AltaStor.com) (modifications)
 // SPDX-License-Identifier: Apache-2.0
 
 package logx
@@ -63,8 +64,8 @@ func TestWarningWithoutWarnCallback(t *testing.T) {
 	OpenEx.Warnf("attach failed: %s", "no free slot")
 	emit(Panic, Close, "detach failed")
 	want := []string{
-		"OpenVDDK: VixDiskLib: VixDiskLib_OpenEx: WARNING: attach failed: no free slot\n",
-		"OpenVDDK: VixDiskLib: VixDiskLib_Close: PANIC: detach failed\n",
+		"VixDiskLib_OpenEx: WARNING: attach failed: no free slot\n",
+		"VixDiskLib_Close: PANIC: detach failed\n",
 	}
 	if strings.Join(got[Info], "") != strings.Join(want, "") || len(got[Warn]) != 0 {
 		t.Fatalf("got %v", got)
@@ -74,7 +75,7 @@ func TestWarningWithoutWarnCallback(t *testing.T) {
 func TestPanicGoesToWarnBeforeLog(t *testing.T) {
 	got := fakeCallbacks(t, Info, Warn)
 	emit(Panic, "", "out of memory")
-	if len(got[Warn]) != 1 || got[Warn][0] != Prefix+"PANIC: out of memory\n" || len(got[Info]) != 0 {
+	if len(got[Warn]) != 1 || got[Warn][0] != "PANIC: out of memory\n" || len(got[Info]) != 0 {
 		t.Fatalf("got %v", got)
 	}
 }
@@ -114,9 +115,9 @@ func TestNoCallbacksOwnFile(t *testing.T) {
 		t.Fatalf("directory mode %v, %v", fi.Mode(), err)
 	}
 	text := readAll(t, path)
-	line := regexp.MustCompile(`^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z (LOG|WARN) OpenVDDK: VixDiskLib: `)
+	line := regexp.MustCompile(`^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z LOG banner$`)
 	lines := strings.Split(strings.TrimSuffix(text, "\n"), "\n")
-	if len(lines) != 2 || !line.MatchString(lines[0]) || !strings.Contains(lines[1], " WARN OpenVDDK: VixDiskLib: VixDiskLib_ConnectEx: sign-in failed") {
+	if len(lines) != 2 || !line.MatchString(lines[0]) || !strings.Contains(lines[1], " WARN VixDiskLib_ConnectEx: sign-in failed") {
 		t.Fatalf("own file:\n%s", text)
 	}
 	if strings.Contains(text, "hunter2") {
@@ -145,8 +146,8 @@ func TestConfiguredFile(t *testing.T) {
 	Infof("banner")
 	Close.Warnf("detach failed")
 	text := readAll(t, path)
-	if len(got[Info]) != 2 || !strings.Contains(text, " LOG OpenVDDK: VixDiskLib: banner\n") ||
-		!strings.Contains(text, " WARN OpenVDDK: VixDiskLib: VixDiskLib_Close: detach failed\n") || OwnFile() != "" {
+	if len(got[Info]) != 2 || !strings.Contains(text, " LOG banner\n") ||
+		!strings.Contains(text, " WARN VixDiskLib_Close: detach failed\n") || OwnFile() != "" {
 		t.Fatalf("callbacks %v, file:\n%s", got, text)
 	}
 }

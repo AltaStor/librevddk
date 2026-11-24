@@ -33,6 +33,9 @@ detach or recovery, so steps inside a call carry that call's name.
    cleanup under `VixDiskLib_Close`; each recovered transaction of Cleanup
    under `VixDiskLib_Cleanup`; sign-in under the call it happens in.
    Start-up, configuration and the summaries carry no function name.
+   *Amended by D-A005 (2026-11-25, contract 26.11.25.1): no prefix comes first.
+   A message of an API call starts with the call's name
+   (`VixDiskLib_OpenEx: …`), any other message with its text.*
 2. Open and Close start with the reference's words (`Open disk '…'`,
    `Close disk '…'`); Open's failure line reads `Cannot open disk <path>.
    Error <code> (<code text>): <cause>`.

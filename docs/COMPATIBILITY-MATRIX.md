@@ -1,17 +1,20 @@
-# Compatibility matrix — OpenVDDK 0.7.5
+# Compatibility matrix — LibreVDDK 26.11.26
 
-Where OpenVDDK has been tested, and with what. "Verified" means compared
+Where LibreVDDK has been tested, and with what. Reads were tested with
+OpenVDDK, whose read path LibreVDDK keeps unchanged (read requests put the
+same bytes on the wire as in 0.7.5); writes were tested with LibreVDDK
+("Writing" below). "Verified" means compared
 with VMware's library on the same inputs, with identical data and the same
 answers, in the records named (docs/observations/). Function-level ABI
 coverage is in `COMPATIBILITY.md`; the full test lists are
 `docs/HOTADD-QUALIFICATION.md` and `docs/NBD-QUALIFICATION.md`.
 
-Status: 2026-11-23, 0.7.5 (released 2026-11-22 from `main`). Changed since
-0.7.4: vSphere 9.1.1 (tested after 0.7.4 was released), encrypted VMs over NBD
+Status: 2026-11-26, LibreVDDK 26.11.26, which adds writes (D-A001 to D-A004,
+"Writing" below) to OpenVDDK 0.7.5 (released 2026-11-22 from `main`).
+Changed in OpenVDDK 0.7.5 since 0.7.4: vSphere 9.1.1 (tested after 0.7.4 was released), encrypted VMs over NBD
 (0.7.5), and ESXi 7.0 GA, verified on 0.7.5 by the reporter of
 openvddk/openvddk#1 on 2026-11-23. Signing in to an ESXi host directly is new in 0.7.4. The HotAdd-only
-line (`release/hotadd`, 0.6.x) is retired (D-0044). Writes (D-A001 to
-D-A004, 2026-11-24) are in "Writing" below.
+line (`release/hotadd`, 0.6.x) is retired (D-0044).
 
 ## Interface and platform
 
@@ -39,7 +42,7 @@ D-A004, 2026-11-24) are in "Writing" below.
 | Signed in to | HotAdd | NBDSSL | NBD | Records |
 |---|---|---|---|---|
 | vCenter | verified (above) | verified (above) | verified (above) | above |
-| An ESXi host directly, from 0.7.4: ESXi 6.7 U3 b14320388 and 7.0 U3c b19193900 (managed by a vCenter, and 7.0 also with no vCenter managing it) | not used by OpenVDDK on such a connection; VMware's library uses it when the worker runs on that host (a known difference, D-0052) | verified (NBD-0031) | verified (NBD-0031) | NET-0005, D-0052 |
+| An ESXi host directly, from 0.7.4: ESXi 6.7 U3 b14320388 and 7.0 U3c b19193900 (managed by a vCenter, and 7.0 also with no vCenter managing it) | not used by LibreVDDK on such a connection; VMware's library uses it when the worker runs on that host (a known difference, D-0052) | verified (NBD-0031) | verified (NBD-0031) | NET-0005, D-0052 |
 | An ESXi 7.0.0 GA b15843807 host that no vCenter manages, from 0.7.5 (the reporter's host) | not used (as above) | verified by the reporter | verified by the reporter | NBD-0032, [openvddk/openvddk#1](https://github.com/openvddk/openvddk/issues/1#issuecomment-7093609781) |
 | An ESXi 8.0.3 b24677879 host that no vCenter manages | not used (as above) | verified (NBD-0031) | verified (NBD-0031) | NET-0005; with the "vSphere 8 Hypervisor" licence the host refuses API writes, and reads, allocation queries and the access calls work with both libraries |
 
@@ -75,6 +78,7 @@ PrepareForAccess and EndAccess answer 20 there, as VMware's library does.
 
 | Application | Version | Transports | Records |
 |---|---|---|---|
+| [AltaStor Backup & Replication](https://altastor.com/product/backup-replication): full and incremental backups (changed areas from vCenter), restores onto the current disk of a powered-off VM | v26.11 | NBDSSL, NBD (HotAdd not tested) | NBD-A003 |
 | nbdkit VDDK plugin, with nbdcopy and qemu-img, with virt-v2v's filters | nbdkit 1.38.5 | all three | HOTADD-QUALIFICATION, NBD-0002, NBD-0004 |
 | virt-v2v, VDDK input mode | 2.7.1 | all three | X1 (HOTADD-QUALIFICATION), N-V2V-1 to N-V2V-4 (NBD-QUALIFICATION) |
 | A migration application that reads disks over HotAdd (cold and warm migrations, up to 17 disks of one VM in parallel) | — | HotAdd | the B and Q-E2E rows of HOTADD-QUALIFICATION |
@@ -85,6 +89,8 @@ PrepareForAccess and EndAccess answer 20 there, as VMware's library does.
 Writes (D-A001 to D-A004) were compared with VMware's VDDK 9.1, the
 reference for writes. Everything below was run on one vSphere 8.0.3 lab
 (vCenter b24022515, ESXi b24022510), from a Debian 13 worker VM, on VMFS.
+AltaStor Backup & Replication ran from a Debian 13 machine outside vSphere
+and was not compared with VMware's library.
 
 | What | HotAdd | NBDSSL | NBD | Records |
 |---|---|---|---|---|
@@ -92,12 +98,13 @@ reference for writes. Everything below was run on one vSphere 8.0.3 lab
 | Signing in to an ESXi host directly | not used (D-0052): the open moves on to the next listed transport | verified | verified | NBD-A002 |
 | Refusals: a snapshot named, a file lower in the chain, a running VM, writes off | verified (13, or 6 with writes off) | verified | verified | HOTADD-A002, NBD-A001 |
 | A datastore that fills | the worker VM stops with either library; the free-space check refuses beforehand | 8, as VMware's library | 8 | HOTADD-A003, HOTADD-A008, NBD-A001 |
-| Host and device failures: device offline or removed, the connection cut | VMware's library answers 7 and 8 (HOTADD-A001); OpenVDDK gives the same codes in unit tests, not yet run live | the connection cut: 14009, as VMware's library; Flush and Close report the error | as NBDSSL | HOTADD-A001, NBD-A001 |
+| Host and device failures: device offline or removed, the connection cut | VMware's library answers 7 and 8 (HOTADD-A001); LibreVDDK gives the same codes in unit tests, not yet run live | the connection cut: 14009, as VMware's library; Flush and Close report the error | as NBDSSL | HOTADD-A001, NBD-A001 |
 | A kill at every journaled step, then Cleanup | verified: detached, nothing left | not applicable (nothing attached) | not applicable | HOTADD-A006 |
 | Written images that LVM or MD could claim | LVM: refused without a filter, nothing claimed with one; MD: see SECURITY.md | not applicable | not applicable | HOTADD-A007 |
+| A restore by AltaStor Backup & Replication v26.11: a full backup written onto the current disk of a powered-off VM | not tested | a backup taken afterwards gives the image that was restored | as NBDSSL | NBD-A003 |
 
 Not tested yet: NFS v3 and NFS 4.1 datastores (the attach and power-on
-locks of HW1), vSAN, vSphere 6.7, 7.0 and 9.1, OpenVDDK with a device set
+locks of HW1), vSAN, vSphere 6.7, 7.0 and 9.1, LibreVDDK with a device set
 offline or removed under a HotAdd writer, and the vCenter privileges
 writes need (`evalkit/README.md`, "vCenter privileges").
 

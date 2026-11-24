@@ -1,4 +1,5 @@
 // Copyright 2026 Andrija Panic and the OpenVDDK contributors
+// Copyright 2026 Norvitex OU (AltaStor.com) (modifications)
 // SPDX-License-Identifier: Apache-2.0
 
 package core
@@ -23,14 +24,6 @@ func captureLog(t *testing.T) *[]string {
 	return &got
 }
 
-func withoutPrefix(lines []string) []string {
-	out := make([]string, len(lines))
-	for i, l := range lines {
-		out[i] = strings.TrimPrefix(l, logx.Prefix)
-	}
-	return out
-}
-
 // When Close returns, the reference's six statistics lines follow our own
 // line, with its names and units (D-0021).
 func TestDiskStatisticsAtClose(t *testing.T) {
@@ -38,7 +31,7 @@ func TestDiskStatisticsAtClose(t *testing.T) {
 	d := &Disk{path: "[ds] vm/vm.vmdk", opened: time.Now(), openTook: 1362 * time.Millisecond}
 	d.stats.reads, d.stats.bytes, d.stats.nanos = 64, 64<<20, int64(328*time.Millisecond)
 	d.logStats(7 * time.Millisecond)
-	lines := withoutPrefix(*got)
+	lines := *got
 	want := []string{
 		"Disk Open Time: 1362 milliseconds.",
 		"Disk Close Time: 7 milliseconds.",
@@ -62,7 +55,7 @@ func TestDiskStatisticsWithoutReads(t *testing.T) {
 	got := captureLog(t)
 	d := &Disk{path: "[ds] vm/vm.vmdk", opened: time.Now(), openTook: time.Second}
 	d.logStats(time.Second)
-	lines := withoutPrefix(*got)
+	lines := *got
 	if len(lines) != 4 || lines[3] != "Disk IO Time: 0 milliseconds." {
 		t.Fatalf("lines %q", lines)
 	}
@@ -74,7 +67,7 @@ func TestConnectionSummary(t *testing.T) {
 	got := captureLog(t)
 	c := &Connection{connected: time.Now().Add(-2 * time.Second), opened: 1}
 	c.logSummary()
-	lines := withoutPrefix(*got)
+	lines := *got
 	if len(lines) != 1 || !strings.HasPrefix(lines[0], "Backup Time:: ") || !strings.HasSuffix(lines[0], " milliseconds.") {
 		t.Fatalf("success: %q", lines)
 	}
@@ -83,7 +76,7 @@ func TestConnectionSummary(t *testing.T) {
 	f := &Connection{connected: time.Now()}
 	f.noteFailure(logx.Open, vix.New(vix.EFileAccessError, "Open", nil))
 	f.logSummary()
-	lines = withoutPrefix(*got)
+	lines = *got
 	if len(lines) != 2 || lines[0] != "Backup Failure Function: VixDiskLib_Open" ||
 		lines[1] != "Backup Failure Error: 13" {
 		t.Fatalf("failure: %q", lines)

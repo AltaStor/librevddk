@@ -28,12 +28,12 @@ Please measure in your own environment: storage, network and CPU decide what you
 
 ## Example 1: virt-v2v
 
-Point virt-v2v at the OpenVDDK kit and add the configuration file:
+Point virt-v2v at the LibreVDDK kit and add the configuration file:
 
 ```
 virt-v2v -ic 'vpx://user@vcenter/Datacenter/cluster/host?no_verify=1' \
   -it vddk \
-  -io vddk-libdir=/opt/openvddk-runtime \
+  -io vddk-libdir=/opt/librevddk-runtime \
   -io vddk-thumbprint=XX:XX:...:XX \
   -io vddk-transports=nbdssl \
   -io vddk-config=/etc/openvddk/openvddk.conf \
@@ -47,7 +47,7 @@ Add `config=` to the parameters you already pass to nbdkit's VDDK plugin (server
 snapshot and the disk, as the plugin's manual describes them):
 
 ```
-nbdkit -r vddk libdir=/opt/openvddk-runtime transports=nbdssl \
+nbdkit -r vddk libdir=/opt/librevddk-runtime transports=nbdssl \
   config=/etc/openvddk/openvddk.conf \
   ...your usual connection and disk parameters...
 ```
@@ -55,7 +55,7 @@ nbdkit -r vddk libdir=/opt/openvddk-runtime transports=nbdssl \
 Your own program passes the file as the last argument of `VixDiskLib_InitEx`.
 
 Apache CloudStack's VMware import builds the virt-v2v command itself. Whether your CloudStack version lets you add a
-VDDK configuration file is not checked here. Without one, OpenVDDK's read-ahead still applies by itself.
+VDDK configuration file is not checked here. Without one, LibreVDDK's read-ahead still applies by itself.
 
 ## What we measured
 
@@ -76,5 +76,5 @@ Every NFC session uses part of the ESXi host's NFC memory, with either library.
   (VMware KB 389223); on ESXi 9, the ConfigStore setting `/plugins/nfcsvc/max_memory`. A hostd restart is needed. In
   a lab test, doubling it doubled the sessions the host served. Changing a host setting is the host administrator's decision.
 
-When the host refuses a session, the read fails with VixError 14009 in OpenVDDK (VMware's library reports error 1 for
+When the host refuses a session, the read fails with VixError 14009 in LibreVDDK (VMware's library reports error 1 for
 the same refusal). Readers that already run are not affected.

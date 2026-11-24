@@ -1,17 +1,17 @@
-# OpenVDDK developer guide
+# LibreVDDK developer guide
 
 This guide is for people writing a program that reads VMware virtual disks
-through OpenVDDK, or writes one back: a backup tool, a migration tool, a
+through LibreVDDK, or writes one back: a backup tool, a migration tool, a
 scanner, a restore. It describes
 the library's C interface, which is the VixDiskLib 8 interface that
-existing tools already use, and how OpenVDDK behaves behind it.
+existing tools already use, and how LibreVDDK behaves behind it.
 
 A program written against this interface, as the examples in this kit are,
-runs with OpenVDDK and with VMware's VDDK 8.0.3 alike: the function names,
+runs with LibreVDDK and with VMware's VDDK 8.0.3 alike: the function names,
 structures, constants and error codes are the same. Where the two libraries
 answer differently, `KNOWN-DIFFERENCES.md` says how and why.
 
-OpenVDDK reads disks. It writes only the current disk of a powered-off VM,
+LibreVDDK reads disks. It writes only the current disk of a powered-off VM,
 and only once writes are switched on outside the program (see "Writing"
 below).
 
@@ -59,8 +59,11 @@ or through pkg-config, with the kit's `lib/pkgconfig` on the search path:
 
 ```sh
 export PKG_CONFIG_PATH=KIT/lib/pkgconfig
-cc -std=gnu11 -o myprog myprog.c $(pkg-config --cflags --libs openvddk)
+cc -std=gnu11 -o myprog myprog.c $(pkg-config --cflags --libs librevddk)
 ```
+
+The kit carries the same file as `openvddk.pc` as well, so build lines
+written for OpenVDDK's module name `openvddk` keep working.
 
 At run time the program finds the library through its run path (the
 examples use `$ORIGIN/../lib`), `LD_LIBRARY_PATH`, or the system's library
@@ -68,7 +71,7 @@ directories. The library runs on Linux x86-64 with glibc 2.28 or newer; it
 is tested on Enterprise Linux 8 and 9.
 
 Programs that load the library at run time with `dlopen` work as well; the
-VDDK plugin of nbdkit, which virt-v2v uses, loads OpenVDDK unchanged.
+VDDK plugin of nbdkit, which virt-v2v uses, loads LibreVDDK unchanged.
 Loading the library starts no threads, so a program may load it, fork, and
 initialise it in the child, as nbdkit does.
 
@@ -86,23 +89,23 @@ An existing program finds the library by one of these names:
 built against; for a running process, `grep -m1 libvixDiskLib
 /proc/PID/maps` shows the file it actually loaded.
 
-With the kit unpacked in `/opt/openvddk`, these commands create the names
+With the kit unpacked in `/opt/librevddk`, these commands create the names
 that are missing; run only the ones your program needs:
 
 ```sh
-K=/opt/openvddk
+K=/opt/librevddk
 # a program built against VDDK 7.0.3
 ln -s libvixDiskLib.so.8.0.3 $K/lib/libvixDiskLib.so.7.0.3
 # a tool that loads the library by major version and knows only VDDK 7
 ln -s libvixDiskLib.so.8.0.3 $K/lib/libvixDiskLib.so.7
-# a tool that expects VDDK's directory layout (lib64/ under libdir=/opt/openvddk)
+# a tool that expects VDDK's directory layout (lib64/ under libdir=/opt/librevddk)
 ln -s lib $K/lib64
 # tell the program where the library is (or add $K/lib to /etc/ld.so.conf.d/ and run ldconfig)
 export LD_LIBRARY_PATH=$K/lib
 ```
 
 These links are a workaround, not a compatibility claim: under any name,
-OpenVDDK behaves as VDDK 8.0.3 (D-0047). An nbdkit older than its VDDK 8
+LibreVDDK behaves as VDDK 8.0.3 (D-0047). An nbdkit older than its VDDK 8
 support (added upstream in November 2022) looks only for
 `libvixDiskLib.so.7` and older, and needs the second link.
 
@@ -110,19 +113,19 @@ Alternatively, replace the file in an existing VDDK directory: keep a copy
 of VMware's file, then copy the kit's library over the file that the
 directory's links point to (for VDDK 7.0.3, `lib64/libvixDiskLib.so.7.0.3`).
 The existing links stay valid, and the other files of VMware's directory
-are not used by OpenVDDK. Restart every process that uses the library.
+are not used by LibreVDDK. Restart every process that uses the library.
 
 A program built against VDDK 7 initialises the library with version 7;
-OpenVDDK accepts every version up to 8.0. It provides the same symbol
+LibreVDDK accepts every version up to 8.0. It provides the same symbol
 versions as VMware's libraries (`VIXDISKLIB_1.0` to `VIXDISKLIB_6.8`), so
-the program's references resolve. OpenVDDK is tested against vSphere 6.7,
+the program's references resolve. LibreVDDK is tested against vSphere 6.7,
 7.0.3 and 8.0.3.
 
-OpenVDDK gives such a program VDDK 8.0.3's answers. The one difference to
+LibreVDDK gives such a program VDDK 8.0.3's answers. The one difference to
 VDDK 7.0.3 found while it was compared (until 26 October 2026; it is no
 longer used as a reference): over HotAdd, 7.0.3 also reports a BIOS geometry
 (in `GetInfo` and as three `geometry.bios*` metadata keys); 8.0.3 and
-OpenVDDK report none. A program built against VDDK 7.0.3 was run this way,
+LibreVDDK report none. A program built against VDDK 7.0.3 was run this way,
 through a `libvixDiskLib.so.7.0.3` link, and nbdkit through a
 `libvixDiskLib.so.7` link alone (NBD-0017).
 
@@ -176,7 +179,7 @@ err = VixDiskLib_ConnectEx(p, TRUE, "snapshot-NNNN", "hotadd:nbdssl", &conn);
   where the VM and its disks are. The user needs the privileges listed in
   `OPERATIONS.md`.
 - **Thumbprint.** The thumbprint of vCenter's certificate, which the
-  library checks before it sends the password. OpenVDDK accepts SHA-1 or
+  library checks before it sends the password. LibreVDDK accepts SHA-1 or
   SHA-256 in hex, with or without colons.
 - **Read-only.** Pass `TRUE` for `readOnly`, and open disks with
   `VIXDISKLIB_FLAG_OPEN_READ_ONLY`. To write, see section 12.
@@ -209,7 +212,7 @@ err = VixDiskLib_Read(disk, startSector, numSectors, buffer);
 - `VixDiskLib_GetInfo` gives the disk's capacity in sectors. A read that
   goes past it fails; nothing is read short and reported as complete.
 - Reads of 1 MiB (2048 sectors) or more per call are a good size. With
-  HotAdd, OpenVDDK reads ahead for programs that read in order.
+  HotAdd, LibreVDDK reads ahead for programs that read in order.
 - `VixDiskLib_GetTransportMode(disk)` returns the transport the disk was
   opened with: `"hotadd"`, `"nbdssl"` or `"nbd"`. The string belongs to the
   library.
@@ -249,7 +252,7 @@ never written. Free the list with `VixDiskLib_FreeBlockList`.
 - A range that runs past the end of the disk is clipped to it; the last
   block may still be rounded up to a whole chunk, so stop reading at the
   capacity (`allocated-blocks.c` shows how).
-- OpenVDDK asks the disk's ESXi host for the map over every transport, as
+- LibreVDDK asks the disk's ESXi host for the map over every transport, as
   VMware's library does, and returns the same blocks. If the host cannot be
   asked, it uses vCenter's map of the disk, and without that it reports the
   whole range as allocated: never less than the disk holds.
@@ -294,7 +297,7 @@ content is undefined until the copy is run again.
 | `nbd` | The same, unencrypted | The same |
 
 `VixDiskLib_ListTransportModes()` returns `hotadd:nbdssl:nbd`, VMware's
-order without the `file` and `san` transports, which OpenVDDK does not
+order without the `file` and `san` transports, which LibreVDDK does not
 have.
 
 The list passed to `ConnectEx` decides what may be used:
@@ -352,7 +355,7 @@ and `VixDiskLib_GetErrorText(err, NULL)` a text to show, freed with
 | Code | Name | Typical cause |
 |---|---|---|
 | 3 | `VIX_E_INVALID_ARG` | An argument outside the rules (for example a chunk size that is not a power of two), or `Open` without the read-only flag on a read-only connection |
-| 6 | `VIX_E_NOT_SUPPORTED` | A function or mode OpenVDDK does not provide (section 13), or `Open` without the read-only flag on a connection for writing while writes are off for every listed transport (section 12) |
+| 6 | `VIX_E_NOT_SUPPORTED` | A function or mode LibreVDDK does not provide (section 13), or `Open` without the read-only flag on a connection for writing while writes are off for every listed transport (section 12) |
 | 7 | `VIX_E_FILE_ERROR` | A write or `Flush` the device or the ESXi host refused (section 12) |
 | 8 | `VIX_E_DISK_FULL` | A write or `Flush` that ran out of space, or a HotAdd write open whose datastore may not hold the write (section 12) |
 | 11 | `VIX_E_FILE_READ_ONLY` | A write call on a disk opened read-only (section 12) |
@@ -370,7 +373,7 @@ says more.
 
 ## 12. Writing
 
-OpenVDDK writes a disk only when all of these hold:
+LibreVDDK writes a disk only when all of these hold:
 
 - **Writes are switched on** for the transport, outside the program:
   `OpenVDDK.hotadd.write = "true"` (HotAdd) or `OpenVDDK.nbd.write =
@@ -453,14 +456,14 @@ lists every difference for writes.
 - Connect read-only, open read-only, read at a snapshot.
 - To write, write only the current disk of a powered-off VM without a
   snapshot, check every `Write`, and call `Flush` and check it before
-  `Close`. Such a program writes with both libraries; OpenVDDK also needs
+  `Close`. Such a program writes with both libraries; LibreVDDK also needs
   its switch (section 12).
 - Pass the transport list you mean; do not rely on the default.
 - Check every return code, and show `GetErrorText` for failures.
 - Follow the callback rules in sections 5 and 10.
 - Read `KNOWN-DIFFERENCES.md`: it lists every case found where the two
   libraries answer differently, for example a snapshot that does not exist
-  (OpenVDDK returns 13003; VMware's library opens the disk's current file).
+  (LibreVDDK returns 13003; VMware's library opens the disk's current file).
 
 ## 15. The examples
 

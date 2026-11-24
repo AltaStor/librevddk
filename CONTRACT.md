@@ -1,7 +1,8 @@
-# OpenVDDK: an independent implementation of the VixDiskLib API
+# LibreVDDK: an independent implementation of the VixDiskLib API
 ## Normative Engineering Contract
 
-**Document version:** 0.44 (2026-11-24)  
+**Document version:** 0.43 (2026-11-22)  
+**LibreVDDK Document version:** 26.11.25.2  
 **Initial compatibility target:** VMware VDDK 8.0.3, build 23950268, Linux x86_64  
 **Reference package:** `VMware-vix-disklib-8.0.3-23950268.x86_64.tar.gz`  
 **Reference for writes:** VMware VDDK 9.1, `VMware-vix-disklib-9.1.0.0.25379531.x86_64.tar.gz` (§49, D-A001)  
@@ -14,6 +15,11 @@
 **Status:** Normative project contract, subject only to explicit revision (§117)
 
 Revision history:
+
+The document version stays OpenVDDK's 0.43, the revision LibreVDDK was
+forked from. LibreVDDK's revisions after it carry a LibreVDDK document
+version: the date of the revision in the form `YY.MM.DD`. A second revision
+on the same day is `YY.MM.DD.1`, a third `YY.MM.DD.2`, and so on.
 
 - 0.1 — Initial contract.
 - 0.2 — Contract for a new, independent implementation. It records the
@@ -176,7 +182,7 @@ Revision history:
   (§95, D-0052).
 - 0.43 — the kit is the runtime kit, with a fixed-name copy and a `lib64`
   link (§127, D-0055).
-- 0.44 — Writes (D-A001 to D-A004):
+- LibreVDDK 26.11.24 — Writes (D-A001 to D-A004):
   - the current disk of a powered-off VM opened without a snapshot may be
     written once a switch outside the program turns writes on for its
     transport family; writes are off by default (§37, D-A001);
@@ -192,6 +198,19 @@ Revision history:
     (§126.13, D-A004);
   - VMware VDDK 9.1 is the reference for writes, VDDK 8.0.3 stays the
     reference for reads (§49, amending D-0046).
+- LibreVDDK 26.11.25 — LibreVDDK's version and names:
+  - the implementation version is the date of the source in the form
+    `YY.MM.DD`, kept in the `VERSION` file only (§86);
+  - the library names itself LibreVDDK in its first log line and its
+    client identification; the kits are `librevddk-runtime-…` and
+    `librevddk-devkit-…`; the pkg-config module is `librevddk`, with
+    `openvddk` as a copy; the log line prefix stays (§86, §127.1, §129).
+- LibreVDDK 26.11.25.1 — Log lines without the prefix `OpenVDDK: VixDiskLib: `:
+  a line of an API call starts with the call's name, any other line with its
+  text (§86, D-A005).
+- LibreVDDK 26.11.25.2 — The project's name in the title and §129; the
+  copyright lines source files carry, and a `NOTICE` that names LibreVDDK's
+  copyright holder as well as OpenVDDK's (§88).
 
 ---
 
@@ -2502,17 +2521,29 @@ Existing consumers that only understand VDDK version information SHALL receive v
 
 Project logs SHOULD make clear that the implementation is open and independent.
 
-Log line format (D-0021). Every message delivered to the consumer's log
-callbacks SHALL start with `OpenVDDK: VixDiskLib: `. A message that belongs
-to an API call SHALL continue with the reference's name for that call and a
-colon (`VixDiskLib_OpenEx` for Open, `VixDiskLib_Open` for Open's failure
-line, otherwise the call's own name); steps inside a call (attach, guest
-discovery, detach, recovery) carry that call's name. When Close returns the
-library SHALL log the reference's per-disk statistics with its names and
-units (`Disk Open Time`, `Disk Close Time`, `Disk IO Time`, and with reads
-`Disk IO Size`, `Disk IO Count`, `Disk IO Speed`), and at Disconnect its
-connection summary (`Backup Time::` when a disk was opened; `Backup Failure
-Function` and `Backup Failure Error` after a failed call). The reference's
+Implementation version. The implementation version is the date of the
+source in the form `YY.MM.DD`, two digits each, such as `26.11.25`.
+The `VERSION` file at the top of the source tree is its only source: the build
+reads it, refuses a value of another form and stamps it into the library and
+`openvddk-admin`. No other source file or script SHALL carry the version itself.
+The claimed compatibility version stays VixDiskLib 8.0.3. The library names
+itself LibreVDDK with this version in its first log line
+(`LibreVDDK <version> (<commit>), independent implementation; …`) and in its client
+identification (`LibreVDDK/<version> (VixDiskLib 8.0.3 compatible) <program>`).
+
+Log line format (D-0021, D-A005). A message delivered to the consumer's log
+callbacks that belongs to an API call SHALL start with the reference's name
+for that call and a colon (`VixDiskLib_OpenEx` for Open, `VixDiskLib_Open`
+for Open's failure line, otherwise the call's own name); steps inside a call
+(attach, guest discovery, detach, recovery) carry that call's name. Any
+other message SHALL start with its text. No implementation or component
+name SHALL come before the call's name or the text; the first log line
+names the implementation. When Close returns the library SHALL log the
+reference's per-disk statistics with its names and units (`Disk Open Time`,
+`Disk Close Time`, `Disk IO Time`, and with reads `Disk IO Size`, `Disk IO
+Count`, `Disk IO Speed`), and at Disconnect its connection summary (`Backup
+Time::` when a disk was opened; `Backup Failure Function` and `Backup
+Failure Error` after a failed call). The reference's
 internal names, source line numbers and vendor identifiers SHALL NOT be
 copied.
 
@@ -2544,11 +2575,20 @@ The repository SHALL remain distributable under that license at any time:
 Apache-2.0 matches `govmomi`, suits broad infrastructure adoption, and
 includes an explicit patent grant.
 
-Every source file SHALL begin with the copyright line
-`Copyright 2026 Andrija Panic and the OpenVDDK contributors` and an
-`SPDX-License-Identifier: Apache-2.0` line (D-0043; `make headers`). The
-published tree (§130) carries the Apache License 2.0 text as `LICENSE` and a
-`NOTICE` file that names the original author.
+Every source file SHALL begin with the copyright line of its author and an
+`SPDX-License-Identifier: Apache-2.0` line (D-0043; `make headers`):
+
+- a file from OpenVDDK keeps
+  `Copyright 2026 Andrija Panic and the OpenVDDK contributors`;
+- a file Norvitex OU changed adds
+  `Copyright 2026 Norvitex OU (AltaStor.com) (modifications)` after it;
+- a new file carries the copyright line of its author, such as
+  `Copyright 2026 Norvitex OU (AltaStor.com)`, or by default
+  `Copyright <year> the LibreVDDK contributors` (`tools/stamp-headers.sh`).
+
+The published tree (§130) carries the Apache License 2.0 text as `LICENSE`
+and a `NOTICE` file that names LibreVDDK's copyright holder and keeps
+OpenVDDK's notice, which names the original author.
 
 Dependencies imposing materially different redistribution obligations SHALL require approval.
 
@@ -3406,7 +3446,7 @@ revision (§117).
 | D-0004 | 2026-10-01 | Private and proprietary until publication; permissive dependencies only; Apache-2.0 on publication | §88 |
 | D-0005 | 2026-10-01 | Independently authored declarations; official headers only in private layout probes | §10 |
 | D-0006 | 2026-10-01 | Public handles are encoded identifiers, never pointers | §11 |
-| D-0007 | 2026-10-01 | `OpenVix.` configuration and `OPENVIX_` environment namespaces are final (amended by D-A001: the write switches' variables are read in production) | §15 |
+| D-0007 | 2026-10-01 | `OpenVix.` configuration and `OPENVIX_` environment namespaces are final (amended by D-A001: the write switches' variables are read in production; by D-A005: log lines carry no prefix) | §15 |
 | D-0008 | 2026-10-01 | Artifact name, SONAME and symbol versions reproduce the reference exactly; the three reference-internal exports are withheld until investigated | §8, §9, §85 |
 | D-0010 | 2026-10-01 | No hosted CI; the containerized `make check` gate runs before every push | §91, §92 |
 | D-0011 | 2026-10-01 | vSphere targets 7.0.3, 8.0.3, 6.7, 6.5; VDDK 7.0.3 as oracle for 6.x (amended by D-0046: VDDK 8.0.3 from 2026-10-26); vSphere/VDDK 9 not targeted | §93–§95 |
@@ -3444,6 +3484,7 @@ revision (§117).
 | D-A002 | 2026-11-12 | Writes over NBDSSL and NBD: the write ticket (`NfcRandomAccessOpenDisk`), one NFC session without read-ahead, a new content ID before the first write, one request of up to 4 MiB in flight, never a move from NBDSSL to NBD; only a successful Flush means stored; after a failed write or flush, Flush and Close return that error (amends D-0039 for writes) | §18, §19, §21, §37, §38, §131 |
 | D-A003 | 2026-11-12 | Writes over HotAdd: attached `independent_persistent`, known by the journal (`disk_mode`, `writable`), identified by disk ID only, the LVM check always enforced, 512-byte blocks, `pwrite` and `fdatasync`, Close flushes and still detaches, moves on only when HotAdd cannot run here (amends D-0014 for writes) | §37, §38, §57, §126 |
 | D-A004 | 2026-11-06 | Before a HotAdd write of a disk that can grow, the room it may need is compared with its datastore's free space (`OpenVDDK.hotadd.write.spaceCheck`: refuse, warn or off); a shortfall moves the open on to NBDSSL or NBD, or answers 8; `openvddk-admin journal` names a writer stuck in I/O | §37, §38, §126.13 |
+| D-A005 | 2026-11-25 | Log lines without the prefix `OpenVDDK: VixDiskLib: `: a line of an API call starts with the call's name, any other line with its text; the first log line names the implementation (amends D-0007, D-0021) | §86 |
 | D-0038 | 2026-10-10 | `include/vixDiskLib.h`, a source-compatibility header written by this project and generated from the library's error table: the ABI header plus every `VIX_E_*` code, `VIX_SUCCEEDED`/`VIX_FAILED`, the hardware-version enum and the basic type names | §10, §50 |
 | D-0037 | 2026-10-08 | NBDSSL/NBD development on `main` from 0.7.0; HotAdd acceptance, fixes and its release candidate on branch `release/hotadd` (from `008fd06`) | §118, §122, §128 |
 | D-0036 | 2026-10-08 | QueryAllocatedBlocks over HotAdd asks the host over NFC (vCenter ticket NfcGetVmFiles, the host's backup-NFC address when selected, authd TLS pinned to the ticket's thumbprint, one session per query); vCenter's map, then the whole range, as fallbacks | §35, §50, §98, §109, §122 |
@@ -3452,7 +3493,7 @@ revision (§117).
 | D-0033 | 2026-10-06 | A VM without disks of its own is accepted as the worker when all its network adapters are present in the guest (live-ISO workers); a VM with neither disks nor adapters is still refused | §126.4, §127.2 |
 | D-0032 | 2026-10-05 | A vCenter NoPermission refusal names the missing privilege; Open answers 13, PrepareForAccess and EndAccess 3014, as the reference; a 404 or 401 for a descriptor is checked against Datastore.Browse and Datastore.FileManagement | §40, §126.9, §127.2 |
 | D-0024 | 2026-10-04 | Reads held to `OpenVix.hotadd.reconfigureReads` (default 1) per attached device while the process attaches or detaches a disk on the proxy | §126.5 |
-| D-0021 | 2026-10-04 | Log lines: `OpenVDDK: VixDiskLib: ` then the reference's function name for the call the message belongs to, then our text; the reference's per-disk statistics at Close and connection summary at Disconnect; `OpenVDDK.` accepted as a spelling of the `OpenVix.` configuration namespace | §15, §86 |
+| D-0021 | 2026-10-04 | Log lines: `OpenVDDK: VixDiskLib: ` then the reference's function name for the call the message belongs to, then our text; the reference's per-disk statistics at Close and connection summary at Disconnect; `OpenVDDK.` accepted as a spelling of the `OpenVix.` configuration namespace (amended by D-A005: no prefix, a line starts with the function's name or the text) | §15, §86 |
 | D-0020 | 2026-10-03 | A single reader's look-ahead is an eighth of its current sequential run in whole blocks (none below 8 blocks), capped at the depth; a run starts at a jump or a forward skip; shared handles keep the full depth | §126.5 |
 | D-0019 | 2026-10-03 | Read-ahead: a single reader releases every block behind it at once and skips gaps; several readers (recognised by overlapping Read calls) keep blocks up to twice the reorder distance behind and never reset the window for a thread that falls behind | §126.5 |
 | D-0018 | 2026-10-03 | A BIOS UUID shared by several VMs refuses HotAdd, as the reference does: ConnectEx (with HotAdd requested) signs in, checks the UUID and fails with VIX_E_INVALID_ARG; Open refuses new attachments the same way; recovery and Cleanup keep identifying the proxy among several | §126.4 |
@@ -3917,9 +3958,10 @@ D-0055). A kit is not a release; §84 governs releases.
 
 ## 127.1 Contents
 
-A kit is one archive, `openvddk-runtime-<version>-<commit>.tar.gz` (named
-`openvddk-evalkit-…` until 0.7.4, D-0055), built also as
-`openvddk-runtime.tar.gz` with the same bytes. It SHALL contain:
+A kit is one archive, `librevddk-runtime-<version>-<commit>.tar.gz`
+(OpenVDDK's `openvddk-runtime-…`, named `openvddk-evalkit-…` until 0.7.4,
+D-0055), built also as `librevddk-runtime.tar.gz` with the same bytes. It
+SHALL contain:
 
 ```text
 lib/libvixDiskLib.so.8.0.3          the library (and the .so.8 / .so links)
@@ -4040,11 +4082,13 @@ qualification notes, and the NBD/NBDSSL phase begins (§122).
 
 # 129. Developer Kit
 
-Developers writing programs against OpenVDDK receive a developer kit
+Developers writing programs against LibreVDDK receive a developer kit
 (D-0041). Like the binary kit it is not a release (§84).
 
-- **Contents.** One archive, `openvddk-devkit-<version>-<commit>.tar.gz`:
-  the library and its links, `lib/pkgconfig/openvddk.pc`, the two headers,
+- **Contents.** One archive, `librevddk-devkit-<version>-<commit>.tar.gz`
+  (OpenVDDK's `openvddk-devkit-…`): the library and its links,
+  `lib/pkgconfig/librevddk.pc` (also as `openvddk.pc`, OpenVDDK's module
+  name), the two headers,
   `examples/` (the binary kit's `read-disk.c` and the examples under
   `devkit/examples/`), `GUIDE.md`, `README.md`,
   `OPERATIONS.md` (the binary kit's README), `KNOWN-DIFFERENCES.md`,

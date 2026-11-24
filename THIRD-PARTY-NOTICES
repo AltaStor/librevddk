@@ -1,4 +1,4 @@
-Third-party software in OpenVDDK binary builds
+Third-party software in LibreVDDK binary builds
 
 No third-party source code is copied into this source tree. The following
 Go modules are compiled into the library (libvixDiskLib.so.8.0.3) and the
@@ -13,7 +13,7 @@ texts follow. The versions are those pinned in go.mod and go.sum.
 | golang.org/x/sys | v0.48.0 | BSD-3-Clause |
 
 The library links dynamically against the system's GNU C Library (glibc,
-LGPL-2.1-or-later), which is not distributed with OpenVDDK. Modules listed
+LGPL-2.1-or-later), which is not distributed with LibreVDDK. Modules listed
 in go.sum but used only by tests (for example gopkg.in/yaml.v3, MIT and
 Apache-2.0) are not part of any binary build.
 

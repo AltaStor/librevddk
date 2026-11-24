@@ -1,9 +1,12 @@
-# OpenVDDK developer kit
+# LibreVDDK developer kit
 
-OpenVDDK is an independent implementation of VixDiskLib, the C library that
+LibreVDDK is an independent implementation of VixDiskLib, the C library that
 backup and migration tools use to read the disks of VMs in VMware vSphere.
 It is a drop-in replacement for VMware's `libvixDiskLib.so.8.0.3`, written
 from scratch, and it reads disks over HotAdd, NBDSSL and NBD.
+It also writes the current disk of a powered-off VM over the same transports, once writes are switched on outside the
+program ("Writing" in `GUIDE.md`).
+It is a fork of OpenVDDK, which reads disks only.
 
 This kit is for writing programs against it. Everything a program needs to
 compile, link and run is here; nothing of VMware's is needed. A program
@@ -13,13 +16,14 @@ written against this interface also runs with VMware's VDDK 8.0.3.
 
 | Path | What it is |
 |---|---|
-| `GUIDE.md` | The developer guide: the interface, how OpenVDDK behaves, and how to write a program that runs with both libraries |
+| `GUIDE.md` | The developer guide: the interface, how LibreVDDK behaves, and how to write a program that runs with both libraries |
 | `include/vixDiskLib.h`, `include/openvix/vixdisklib_abi.h` | The headers |
 | `lib/libvixDiskLib.so.8.0.3` | The library, with the links `libvixDiskLib.so.8` and `libvixDiskLib.so` |
-| `lib/pkgconfig/openvddk.pc` | pkg-config file: `pkg-config --cflags --libs openvddk` |
+| `lib/pkgconfig/librevddk.pc` | pkg-config file: `pkg-config --cflags --libs librevddk` |
+| `lib/pkgconfig/openvddk.pc` | the same file under OpenVDDK's module name, for build lines written for OpenVDDK |
 | `examples/` | Four example programs and their Makefile |
 | `OPERATIONS.md` | Running the library: requirements of each transport, vCenter privileges, configuration, log messages, recovery after a crash. It is the binary kit's README; everything in it applies here |
-| `KNOWN-DIFFERENCES.md` | Every case found where OpenVDDK answers differently from VMware's library, and why |
+| `KNOWN-DIFFERENCES.md` | Every case found where LibreVDDK answers differently from VMware's library, and why |
 | `ADMIN.md`, `bin/openvddk-admin` | The command-line tool that shows and clears what a crashed program left on a worker |
 | `LICENSE` | The Apache License 2.0, under which this kit is provided |
 | `NOTICE` | The copyright and trademark notices |

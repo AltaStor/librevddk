@@ -2,7 +2,7 @@
 
 - Date: 2026-11-12
 - Contract: §15, §37, §38, §49
-- Status: accepted (2026-11-24, contract 0.44). Amends D-0027 for one case:
+- Status: accepted (2026-11-24, contract 26.11.24). Amends D-0027 for one case:
   writing the current disk of a powered-off VM, once a switch outside the
   program turns writes on. The transports are D-A002 (NBDSSL and NBD) and
   D-A003 (HotAdd). Also amends D-0007 for the switches' environment
@@ -116,7 +116,7 @@ VMware's library also writes where this decision refuses (HOTADD-A001):
 
 ## Contract text
 
-Applied in contract 0.44: §37 keeps its list of required definitions and
+Applied in contract 26.11.24: §37 keeps its list of required definitions and
 ends with the text below, with the switches and the codes of point 2
 spelled out; §15 names the variables and §49 the reference for writes.
 
@@ -146,7 +146,7 @@ spelled out; §15 names the variables and §49 the reference for writes.
   point 1. `WriteMetadata`, `Shrink` and `Defragment` stay unsupported.
 - **Public wording.** README, KNOWN-DIFFERENCES and the guides change "read
   only by design" to: reads; writes to powered-off VMs' current disks, off
-  unless switched on outside the program. Done with contract 0.44, in the
+  unless switched on outside the program. Done with contract 26.11.24, in the
   kit's README and KNOWN-DIFFERENCES, the developer guide, SECURITY.md,
   ARCHITECTURE.md, CONTRIBUTING.md and the compatibility matrix.
 - **Security review.** A review of the write path comes before the first

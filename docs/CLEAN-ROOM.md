@@ -7,6 +7,12 @@ policy, observation records, provenance) and PROVENANCE.md. Every
 statement here points to a record in this repository; the raw evidence
 (logs, captures, lab scripts) is kept privately.
 
+This record covers OpenVDDK, from which LibreVDDK was forked, and with it
+everything LibreVDDK reads. How LibreVDDK learned what VMware's library does
+when it writes is recorded in D-A001 (the reference package for writes,
+VDDK 9.1) and D-A002 (the NFC write messages), and in the observation records
+of D-A001 to D-A004.
+
 ## The rule
 
 The implementation is written by the project. What the reference library

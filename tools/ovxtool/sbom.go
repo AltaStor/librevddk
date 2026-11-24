@@ -1,4 +1,5 @@
 // Copyright 2026 Andrija Panic and the OpenVDDK contributors
+// Copyright 2026 Norvitex OU (AltaStor.com) (modifications)
 // SPDX-License-Identifier: Apache-2.0
 
 package main
@@ -37,6 +38,9 @@ const (
 	projectLicense  = "Apache-2.0"
 	projectLicText  = "Apache License 2.0; see the LICENSE and NOTICE files."
 	goStdlibLicense = "BSD-3-Clause"
+	// The copyright of LibreVDDK's binaries: OpenVDDK's authors and the authors of LibreVDDK's changes.
+	projectCopyright = "Copyright 2026 Andrija Panić and the OpenVDDK contributors; " +
+		"Copyright 2026 Norvitex OÜ (AltaStor.com), for LibreVDDK's changes"
 )
 
 // sbomBinary is one shipped file and the Go build information inside it.
@@ -145,14 +149,14 @@ func spdxID(kind, name string) string {
 func writeSBOM(w io.Writer, version, commit string, created time.Time, bins []sbomBinary) error {
 	var d spdxDoc
 	d.SPDXVersion, d.DataLicense, d.SPDXID = "SPDX-2.3", "CC0-1.0", "SPDXRef-DOCUMENT"
-	d.Name = "OpenVDDK-" + version
-	d.DocumentNamespace = "https://openvddk.com/spdx/openvddk-" + version + "-" + commit
+	d.Name = "LibreVDDK-" + version
+	d.DocumentNamespace = "https://github.com/AltaStor/LibreVDDK/spdx/librevddk-" + version + "-" + commit
 	d.CreationInfo.Created = created.Format(time.RFC3339)
-	d.CreationInfo.Creators = []string{"Organization: OpenVDDK", "Tool: ovxtool-sbom"}
+	d.CreationInfo.Creators = []string{"Organization: LibreVDDK", "Tool: ovxtool-sbom"}
 	// Only a LicenseRef needs its text in the document; the clean tree
 	// declares a license from the SPDX list (D-0043).
 	if strings.HasPrefix(projectLicense, "LicenseRef-") {
-		d.ExtractedLicenseInfo = []spdxLicense{{LicenseID: projectLicense, Name: "OpenVDDK license", ExtractedText: projectLicText}}
+		d.ExtractedLicenseInfo = []spdxLicense{{LicenseID: projectLicense, Name: "LibreVDDK license", ExtractedText: projectLicText}}
 	}
 
 	mods := map[string]*debug.Module{}
@@ -162,10 +166,10 @@ func writeSBOM(w io.Writer, version, commit string, created time.Time, bins []sb
 		id := spdxID("File", b.Name)
 		d.Packages = append(d.Packages, spdxPackage{
 			SPDXID: id, Name: b.Name, VersionInfo: version + " (" + commit + ")",
-			Supplier: "Organization: OpenVDDK", DownloadLocation: "NOASSERTION",
+			Supplier: "Organization: LibreVDDK", DownloadLocation: "NOASSERTION",
 			Checksums:        []spdxChecksum{{Algorithm: "SHA256", ChecksumValue: b.SHA}},
 			LicenseConcluded: projectLicense, LicenseDeclared: projectLicense,
-			CopyrightText: "Copyright 2026 Andrija Panić and the OpenVDDK contributors",
+			CopyrightText: projectCopyright,
 			Comment:       "built " + buildSettings(b.Info),
 		})
 		d.Relationships = append(d.Relationships, spdxRelationship{"SPDXRef-DOCUMENT", "DESCRIBES", id})

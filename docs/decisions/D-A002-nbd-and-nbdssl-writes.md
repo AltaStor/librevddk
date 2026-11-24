@@ -2,7 +2,7 @@
 
 - Date: 2026-11-05, revised 2026-11-12
 - Contract: §18, §19, §21, §37, §38, §131
-- Status: accepted (2026-11-24, contract 0.44; amends D-0039 for writes:
+- Status: accepted (2026-11-24, contract 26.11.24; amends D-0039 for writes:
   its move from NBDSSL to NBD after a refused TLS stream applies to reads
   only). Writes over NBDSSL and NBD under the scope and the
   switch of D-A001. The reference observations NW1 to NW4 below were
@@ -229,7 +229,7 @@ through its public functions, and from OpenVDDK's own runs:
 
 ## Contract text
 
-Applied in contract 0.44 as §131, "NBDSSL and NBD Writes", with the
+Applied in contract 26.11.24 as §131, "NBDSSL and NBD Writes", with the
 details of points 4 to 8 spelled out; §18 and §19 point to it. The text as
 decided:
 
@@ -279,6 +279,6 @@ decided:
   NFC service for the same ticket, as VMware's library does (NET-A003), and
   works over NBDSSL and NBD (NBD-A002). HotAdd stays vCenter-only (D-0052).
 - **Guides:** the kit's README and KNOWN-DIFFERENCES, the developer guide
-  and SECURITY.md carry the wording above (contract 0.44).
+  and SECURITY.md carry the wording above (contract 26.11.24).
 - **Not planned:** pieces larger than 64 KiB, writes spread over several
   sessions, and writes at snapshots or to running VMs.

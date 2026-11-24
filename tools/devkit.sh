@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Copyright 2026 Andrija Panic and the OpenVDDK contributors
+# Copyright 2026 Norvitex OU (AltaStor.com) (modifications)
 # SPDX-License-Identifier: Apache-2.0
 #
 # Assembles and checks the developer kit (CONTRACT.md §129, D-0041): the
@@ -29,7 +30,7 @@ cmp -s "$lib_a" "$lib_b" || die "the two reproducible builds differ"
 admin=$out/bin/openvddk-admin
 [ -x "$admin" ] || die "run make admin first"
 
-name=openvddk-devkit-$version-$commit
+name=librevddk-devkit-$version-$commit
 # Staged on a Linux filesystem, so the file modes set below hold.
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
@@ -40,7 +41,9 @@ mkdir -p "$out/devkit" "$stage/lib/pkgconfig" "$stage/bin" "$stage/include/openv
 install -m 0755 "$lib_a" "$stage/lib/$soname"
 ln -s "$soname" "$stage/lib/libvixDiskLib.so.8"
 ln -s libvixDiskLib.so.8 "$stage/lib/libvixDiskLib.so"
-sed "s/@VERSION@/$version/" devkit/openvddk.pc.in > "$stage/lib/pkgconfig/openvddk.pc"
+sed "s/@VERSION@/$version/" devkit/librevddk.pc.in > "$stage/lib/pkgconfig/librevddk.pc"
+# The same file under OpenVDDK's module name, so build lines written for OpenVDDK keep working.
+cp "$stage/lib/pkgconfig/librevddk.pc" "$stage/lib/pkgconfig/openvddk.pc"
 install -m 0644 include/openvix/vixdisklib_abi.h "$stage/include/openvix/"
 install -m 0644 include/vixDiskLib.h "$stage/include/"
 install -m 0644 evalkit/examples/read-disk.c "$stage/examples/"
@@ -55,7 +58,7 @@ install -m 0644 LICENSE NOTICE THIRD-PARTY-NOTICES "$stage/"
 
 epoch=$(git log -1 --format=%ct 2>/dev/null || echo 0)
 {
-  echo "OpenVDDK developer kit $version, commit $commit"
+  echo "LibreVDDK developer kit $version, commit $commit"
   echo "library: $soname, SHA-256 $(sha256sum "$lib_a" | cut -d' ' -f1)"
   echo "commit time: $(date -u -d "@$epoch" '+%Y-%m-%d %H:%M:%S UTC')"
   echo
@@ -70,14 +73,14 @@ epoch=$(git log -1 --format=%ct 2>/dev/null || echo 0)
 
 SOURCE_DATE_EPOCH=$epoch "$out/bin/ovxtool" sbom -version "$version" -commit "$commit" \
   "$stage/lib/$soname" "$stage/bin/openvddk-admin" > "$stage/SBOM.spdx.json" || die "SBOM failed"
-chmod 0644 "$stage/SBOM.spdx.json" "$stage/lib/pkgconfig/openvddk.pc"
+chmod 0644 "$stage/SBOM.spdx.json" "$stage/lib/pkgconfig/librevddk.pc" "$stage/lib/pkgconfig/openvddk.pc"
 
 # Gate 1: exactly the expected files.
 expected=$(printf '%s\n' ADMIN.md BUILD.txt GUIDE.md KNOWN-DIFFERENCES.md LICENSE NOTICE \
   OPERATIONS.md README.md SBOM.spdx.json THIRD-PARTY-NOTICES bin/openvddk-admin \
   examples/Makefile examples/allocated-blocks.c examples/async-read.c examples/common.h \
   examples/disk-info.c examples/read-disk.c include/openvix/vixdisklib_abi.h include/vixDiskLib.h \
-  lib/libvixDiskLib.so lib/libvixDiskLib.so.8 "lib/$soname" lib/pkgconfig/openvddk.pc | sort)
+  lib/libvixDiskLib.so lib/libvixDiskLib.so.8 "lib/$soname" lib/pkgconfig/librevddk.pc lib/pkgconfig/openvddk.pc | sort)
 actual=$(cd "$stage" && find . \( -type f -o -type l \) | sed 's|^\./||' | sort)
 [ "$expected" = "$actual" ] || { diff <(echo "$expected") <(echo "$actual") >&2 || true; die "unexpected kit contents"; }
 
@@ -96,6 +99,9 @@ for mode in 0 1; do
   make -s -C "$tmp/kit/examples" KIT=.. PKGCONFIG=$mode CFLAGS="-std=gnu11 -O2 -Wall -Wextra -Werror" >/dev/null \
     || die "the examples do not build against the kit (PKGCONFIG=$mode)"
 done
+# Both module names give the same flags.
+pc() { PKG_CONFIG_PATH=$tmp/kit/lib/pkgconfig pkg-config --cflags --libs "$1"; }
+[ "$(pc librevddk)" = "$(pc openvddk)" ] || die "pkg-config gives other flags for openvddk than for librevddk"
 for p in read-disk disk-info allocated-blocks async-read; do
   needed=$(readelf -d "$tmp/kit/examples/$p" | sed -n 's/.*(NEEDED).*\[\(libvixDiskLib[^]]*\)\].*/\1/p')
   [ "$needed" = "$soname" ] || die "$p asks for '$needed', not $soname"

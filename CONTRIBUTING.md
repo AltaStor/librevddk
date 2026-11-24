@@ -1,11 +1,11 @@
-# Contributing to OpenVDDK
+# Contributing to LibreVDDK
 
 Thank you for helping. A few rules keep the project clean, and safe for
 everyone who builds on it or ships it.
 
 ## The clean-room rule
 
-OpenVDDK reproduces the behaviour of VMware's VixDiskLib, learned only from
+LibreVDDK reproduces the behaviour of VMware's VixDiskLib, learned only from
 outside: public documentation, the facts any program needs to link against
 the library, and what it visibly does when it runs (docs/CLEAN-ROOM.md,
 CONTRACT.md §50). In a contribution:
@@ -42,21 +42,21 @@ licence (LICENSE).
 
 ## Licence headers
 
-Every new source file starts with the copyright and licence lines the other
-files carry. `tools/stamp-headers.sh` adds them, and `make headers` (part
-of `make check`) fails without them. Existing copyright and licence notices
-are kept as they are.
+Every new source file starts with the copyright line of its author and the
+licence line `SPDX-License-Identifier: Apache-2.0`. Without an author named,
+the copyright line is `Copyright <year> the LibreVDDK contributors`.
+`tools/stamp-headers.sh` adds both lines to files that lack them
+(`--holder NAME` names the author), and `make headers` (part of
+`make check`) fails on a file without the licence line. Existing copyright
+and licence notices are kept as they are.
 
 ## Before you send a change
 
 - `tools/container/run.sh make check` passes (README, "Build and test").
 - A change of behaviour comes with a test, and a newly observed behaviour
   of the reference library with its record.
-- Writes stay within CONTRACT.md §37: the current disk of a powered-off VM
-  without a snapshot, off unless switched on outside the program (D-A001).
-  Writing anything else needs a new decision and a contract revision. A
-  newly observed write behaviour of the reference is observed with VMware's
-  VDDK 9.1 (§49).
+- Writes beyond what CONTRACT.md §37 allows need a new decision and a
+  contract revision.
 
 ## Pull requests
 
@@ -64,12 +64,11 @@ are kept as they are.
   the change, so the approach is agreed before you spend time on it.
 - Keep a pull request to one topic, and fill in its template: what changes
   and why, the ESXi and vCenter versions you tested against (with the NFC
-  version from the log where it matters), the transports and how you
-  tested.
-- Nothing runs automatically on pull requests. The maintainer reviews the
-  change, runs the tests and, where it changes what goes over the wire,
-  re-tests it against real hosts before merging.
-- Only the maintainer merges.
+  version from the log where it matters), the transports and how you tested.
+- Nothing runs automatically on pull requests. The maintainers review the
+  change, run the tests and, where it changes what goes over the wire,
+  re-test it against real hosts before merging.
+- Only the maintainers merge.
 
 ## Security
 

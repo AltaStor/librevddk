@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
 # Copyright 2026 Andrija Panic and the OpenVDDK contributors
+# Copyright 2026 Norvitex OU (AltaStor.com) (modifications)
 # SPDX-License-Identifier: Apache-2.0
 #
-# Assembles and checks the runtime kit (CONTRACT.md §127, D-0055; the archive
-# was named openvddk-evalkit-... until 0.7.4): the library, the administrative program, the
-# headers, the example, the user guide and the licence files. Called by
-# `make runtime` (or its old name `make evalkit`) inside the pinned
+# Assembles and checks the runtime kit (CONTRACT.md §127, D-0055): the
+# library, the administrative program, the headers, the example, the user
+# guide and the licence files. The archive is librevddk-runtime-...; OpenVDDK
+# names it openvddk-runtime-..., and named it openvddk-evalkit-... until 0.7.4.
+# Called by `make runtime` (or its old name `make evalkit`) inside the pinned
 # container, after `make check` and `make repro`.
 #
 #   tools/evalkit.sh <out-dir> <version> <commit>
@@ -27,7 +29,7 @@ lib_a=$out/repro-a/lib/$soname lib_b=$out/repro-b/lib/$soname
 [ -f "$lib_a" ] && [ -f "$lib_b" ] || die "run make repro first"
 cmp -s "$lib_a" "$lib_b" || die "the two reproducible builds differ"
 
-name=openvddk-runtime-$version-$commit
+name=librevddk-runtime-$version-$commit
 # Staged on a Linux filesystem: the file modes set below must hold (a bind
 # mount of a Windows drive reports every file as 0777).
 work=$(mktemp -d)
@@ -54,7 +56,7 @@ install -m 0644 LICENSE NOTICE THIRD-PARTY-NOTICES "$stage/"
 
 epoch=$(git log -1 --format=%ct 2>/dev/null || echo 0)
 {
-  echo "OpenVDDK runtime kit $version, commit $commit"
+  echo "LibreVDDK runtime kit $version, commit $commit"
   echo "library: $soname, SHA-256 $(sha256sum "$lib_a" | cut -d' ' -f1)"
   echo "commit time: $(date -u -d "@$epoch" '+%Y-%m-%d %H:%M:%S UTC')"
   echo
@@ -111,6 +113,6 @@ chmod 0644 "$stage/SHA256SUMS" "$stage/BUILD.txt"
 tar --sort=name --owner=0 --group=0 --numeric-owner --mtime="@$epoch" \
   -C "$work" -cf - "$name" | gzip -n > "$out/runtime/$name.tar.gz"
 # The same bytes under a fixed name, for a "latest" download link (D-0055).
-cp "$out/runtime/$name.tar.gz" "$out/runtime/openvddk-runtime.tar.gz"
+cp "$out/runtime/$name.tar.gz" "$out/runtime/librevddk-runtime.tar.gz"
 echo "runtime kit: $out/runtime/$name.tar.gz"
 (cd "$out/runtime" && sha256sum ./*.tar.gz)

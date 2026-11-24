@@ -122,6 +122,7 @@ it. Performance figures are not published.
 | [NBD-0035](NBD-0035-release-checks-0.7.5-rc1.md) | Release checks of 0.7.5-rc1 on vSphere 6.7, 7.0, 8.0.3 and 9.1.1 |
 | [NBD-A001](NBD-A001-candidate-writes.md) | OpenVDDK writing a VM's disk over NBDSSL and NBD (D-A002) |
 | [NBD-A002](NBD-A002-writes-direct-esxi.md) | OpenVDDK writing over a direct connection to an ESXi host (D-A002) |
+| [NBD-A003](NBD-A003-altastor-backup-replication.md) | AltaStor Backup & Replication backing up and restoring over NBDSSL and NBD |
 | [NET-0001](NET-0001-lab-captures-and-access-calls.md) | Lab network captures, and the basis of the access-control calls |
 | [NET-0002](NET-0002-allocation-query-over-nfc.md) | The reference's allocation query over NFC |
 | [NET-0003](NET-0003-nbd-read-over-nfc.md) | The reference's NBD read: descriptor keys and data over NFC |

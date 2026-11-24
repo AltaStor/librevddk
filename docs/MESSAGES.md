@@ -11,9 +11,9 @@ file listed here.
 
 ## How a line is built and delivered
 
-- **Format (D-0021).** `OpenVDDK: VixDiskLib: ` + the function the line
-  belongs to and a colon (`VixDiskLib_OpenEx: `) when it belongs to one +
-  the text. Steps inside a call carry that call's name: the attach and
+- **Format (D-0021, D-A005).** The function the line belongs to and a
+  colon (`VixDiskLib_OpenEx: `) when it belongs to one + the text; no
+  prefix comes first. Steps inside a call carry that call's name: the attach and
   guest discovery `VixDiskLib_OpenEx`, the detach `VixDiskLib_Close`,
   recovery during Cleanup `VixDiskLib_Cleanup`. Secrets are redacted
   (`internal/logx/logx.go`, `Redact`).
@@ -34,7 +34,7 @@ file listed here.
 
 | Where | Level | Text | When |
 |---|---|---|---|
-| internal/lifecycle/lifecycle.go:120 | LOG | `OpenVDDK <version> (<commit>), independent implementation; VixDiskLib 8.0.3 ABI (…)` | first successful Init/InitEx |
+| internal/lifecycle/lifecycle.go:120 | LOG | `LibreVDDK <version> (<commit>), independent implementation; VixDiskLib 8.0.3 ABI (…)` | first successful Init/InitEx |
 | internal/lifecycle/lifecycle.go:121 | LOG | `initialized for client %d.%d; available transport modes: %s` | same |
 | internal/lifecycle/lifecycle.go:118 | LOG | `re-initialized for client %d.%d` | Init/InitEx while initialized |
 | internal/lifecycle/lifecycle.go:125 | LOG | `writes over %s enabled by %s: a disk opened without the read-only flag may be written` | Init/InitEx, once for each transport family a switch outside the program turns writes on for: `OPENVIX_HOTADD_WRITE` or `OPENVIX_NBD_WRITE`, `OpenVDDK.hotadd.write` or `OpenVDDK.nbd.write` in the configuration file, each one that does (D-A001) |
@@ -210,7 +210,7 @@ reference's published list since 0.6.9). Consumers show these texts.
 
 | Cause | Where it shows |
 |---|---|
-| sign-in and sign-out | vCenter `UserLoginSessionEvent` / `UserLogoutSessionEvent` naming the client `OpenVDDK/<version> (VixDiskLib 8.0.3 compatible) <program>` (LOG-0001, gap G1); `BadUsernameSessionEvent` for a rejected password, once per connection |
+| sign-in and sign-out | vCenter `UserLoginSessionEvent` / `UserLogoutSessionEvent` naming the client `LibreVDDK/<version> (VixDiskLib 8.0.3 compatible) <program>` (LOG-0001, gap G1); `BadUsernameSessionEvent` for a rejected password, once per connection |
 | descriptor read for GetInfo | one `DatastoreFileDownloadEvent` per descriptor read at Open (G2, accepted until descriptors are read over NFC) |
 | attach and detach | `ReconfigVM_Task` on the proxy with `TaskEvent` and `VmReconfiguredEvent`; the proxy VM's `vmware.log`; ESXi `vmkernel.log` |
 | disk ID settings, redo log cleanup | `ReconfigVM_Task` and `DeleteDatastoreFile_Task`, only when needed |

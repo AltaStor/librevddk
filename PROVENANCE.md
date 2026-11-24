@@ -1,7 +1,9 @@
 # Provenance
 
 CONTRACT.md §50–§53. How the reference's behaviour was learned, source by
-source, is recorded in docs/CLEAN-ROOM.md.
+source, is recorded in docs/CLEAN-ROOM.md. The evidence behind LibreVDDK's
+writes is recorded in D-A001 (the reference package for writes) and D-A002
+(how the NFC write messages were learned).
 
 ## Source files
 

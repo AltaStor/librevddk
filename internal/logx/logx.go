@@ -24,16 +24,11 @@ const (
 	Panic Level = 2
 )
 
-// Prefix starts every message: the implementation's name, so logs make
-// clear which library produced them (CONTRACT.md section 86), then the
-// reference's component name, so a message about the same step is found by
-// the same search as the reference's (D-0021).
-const Prefix = "OpenVDDK: VixDiskLib: "
-
-// Fn is the VixDiskLib function a message belongs to; its messages carry
-// the function's name after Prefix, as the reference's do
-// ("VixDiskLib: VixDiskLib_OpenEx: …"). Steps inside a call (attach, guest
-// discovery, detach, recovery) belong to that call (D-0021).
+// Fn is the VixDiskLib function a message belongs to. Its messages start with the function's name, as the reference's do
+// after its component name ("VixDiskLib: VixDiskLib_OpenEx: …"), so a message about the same step is found by the same
+// search as the reference's (D-0021).
+// Steps inside a call (attach, guest discovery, detach, recovery) belong to that call.
+// No other prefix comes before the name: the first log line names the library (CONTRACT.md section 86, D-A005).
 type Fn string
 
 // The functions messages are logged under. OpenEx is the reference's log
@@ -163,9 +158,9 @@ func emit(l Level, fn Fn, format string, args ...any) {
 }
 
 func emitIn(ch channel, l Level, fn Fn, format string, args ...any) {
-	head := Prefix
+	head := ""
 	if fn != "" {
-		head += string(fn) + ": "
+		head = string(fn) + ": "
 	}
 	text := Redact(fmt.Sprintf(format, args...))
 	if !delivered(ch, l) {

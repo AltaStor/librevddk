@@ -2,7 +2,7 @@
 
 - Date: 2026-11-05, revised 2026-11-12
 - Contract: §37, §38, §57, §117, §126
-- Status: accepted (2026-11-24, contract 0.44; amends D-0014 for disks
+- Status: accepted (2026-11-24, contract 26.11.24; amends D-0014 for disks
   opened for writing). Writes over HotAdd under the scope and the switch of
   D-A001. The reference observations HW1 to HW5 were recorded on 2026-11-05
   (HOTADD-A001); HW6 to HW9 on 2026-11-06 (HOTADD-A003, HOTADD-A004,
@@ -277,7 +277,7 @@ The candidate also needs:
 
 ## Contract text
 
-Applied in contract 0.44: §126.1, §126.4, §126.5 and §126.7 to §126.10
+Applied in contract 26.11.24: §126.1, §126.4, §126.5 and §126.7 to §126.10
 carry the changes below, and §126.13 the new subsection, with D-A004's
 check. The point listed below for §126.9, no read-ahead, went into §126.5,
 where the read-ahead is described. The text as decided:
@@ -329,7 +329,7 @@ where the read-ahead is described. The text as decided:
   compatibility ledger (D-A001).
 - **Public wording.** KNOWN-DIFFERENCES says that the disk is attached
   `independent_persistent` where the reference attaches it `persistent`
-  (contract 0.44).
+  (contract 26.11.24).
 - **Not planned in this step:**
   - writes to running VMs or at snapshots;
   - read-modify-write for 4Kn devices;

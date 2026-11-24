@@ -11,7 +11,7 @@ Status 2026-10-14, library 0.6.25 (contract 0.27). Scope of this record:
 the HotAdd transport, read-only by design (D-0027), Linux x86-64.
 NBD/NBDSSL are not started (a paused work-in-progress exists).
 
-Status of the write rows 2026-11-24 (contract 0.44): writes over HotAdd to
+Status of the write rows 2026-11-24 (contract 26.11.24): writes over HotAdd to
 the current disk of a powered-off VM, once switched on (CONTRACT.md §37,
 §126.13; D-A001, D-A003, D-A004), in "Writes" below.
 

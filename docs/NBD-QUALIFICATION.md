@@ -21,7 +21,8 @@ The HotAdd method applies, plus the following points.
   reference use NBD where NBDSSL was asked for (NBD-0002).
 - **Real consumers:** nbdkit 1.38.5 with virt-v2v's filters and options
   (`retry`, `blocksize`, `cow`, `multi-conn`; `nbdcopy --requests=64`) and
-  virt-v2v 2.7.1, unmodified.
+  virt-v2v 2.7.1, unmodified. For backups and restores, AltaStor Backup &
+  Replication v26.11 (NBD-A003).
 - **Fault injection:** iptables rules on the worker only, on TCP port 902
   only, removed after each case.
 
@@ -86,6 +87,7 @@ tests (§120).
 | NW5 | Candidate refusals: writes off, a snapshot named, a file lower in the chain, a running VM | 6 with writes off; 13 for the others, before any NFC session | NBD-A001 |
 | NW6 | A direct connection to an ESXi host: NBDSSL, NBD, `hotadd:nbdssl`, `hotadd` alone | written and read back over NBDSSL and NBD; HotAdd skipped for NBDSSL with a warning; `hotadd` alone 13 | NBD-A002 |
 | NW7 | The same image written by both libraries over NBDSSL | the same bytes, space and descriptor change; change tracking kept | HOTADD-A004 |
+| NW8 | A backup application's restore over NBDSSL and NBD: AltaStor Backup & Replication v26.11, from a machine outside vSphere | the candidate only: a backup taken afterwards gives the image that was restored | NBD-A003 |
 
 Still to test: the privilege of the write ticket with a minimal role (FS2
 of HOTADD-QUALIFICATION), writes on NFS datastores and on vSphere 6.7, 7.0

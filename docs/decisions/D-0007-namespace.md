@@ -16,7 +16,9 @@
   line after initialization identifies the implementation and its claimed
   compatibility generation. *Amended by D-0021 (2026-10-04): lines start
   with `OpenVDDK: VixDiskLib: `, and configuration keys may also be written
-  `OpenVDDK.`.*
+  `OpenVDDK.`. Amended by D-A005 (2026-11-25): lines start with the
+  function's name or the text, with no prefix; the first line still
+  identifies the implementation.*
 
 ## Recognised keys
 

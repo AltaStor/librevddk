@@ -34,7 +34,7 @@ destination with its own code.
 3. §37 remains the contract for any future write support. Adding it needs
    a new decision and a contract revision.
 
-*Amended by D-A001 (2026-11-24, contract 0.44): `Write`, `WriteAsync` and
+*Amended by D-A001 (2026-11-24, contract 26.11.24): `Write`, `WriteAsync` and
 `Flush` act on the current disk of a powered-off VM opened without a
 snapshot, once a switch outside the program turns writes on (D-A002,
 D-A003). Outside that exception this decision stands; `WriteMetadata`,

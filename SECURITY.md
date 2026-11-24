@@ -2,7 +2,7 @@
 
 CONTRACT.md §21, §54–§58.
 
-## Current posture (0.7.4)
+## Current posture (LibreVDDK 26.11.26)
 
 The library connects to vCenter, or directly to an ESXi host; for HotAdd,
 through vCenter only, it attaches disks to the proxy and reads block
@@ -64,7 +64,7 @@ following is enforced:
   lower in the chain, a running VM, an independent disk, a raw device
   mapping or an encrypted disk. Open checks this before any transport is
   tried. VMware's library writes into a parent of a snapshot chain when
-  asked and breaks the chain (HOTADD-A001); OpenVDDK refuses.
+  asked and breaks the chain (HOTADD-A001); LibreVDDK refuses.
 - **Writes over HotAdd** (D-A003): the disk is attached
   `independent_persistent`, so no snapshot of the worker captures the
   writes; the attachment is known by its journal record. It is accepted only

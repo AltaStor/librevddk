@@ -326,7 +326,10 @@ func libraryKind(p, sum string) string {
 	if err != nil {
 		return "unreadable"
 	}
+	// A LibreVDDK library carries its client identification "LibreVDDK/"; an OpenVDDK library "OpenVDDK/".
 	switch {
+	case bytes.Contains(data, []byte("LibreVDDK/")):
+		return "LibreVDDK (its version is in the first log line: \"LibreVDDK <version> (<commit>)\")"
 	case bytes.Contains(data, []byte("OpenVDDK/")):
 		return "OpenVDDK (its version is in the first log line: \"OpenVDDK <version> (<commit>)\")"
 	case bytes.Contains(data, []byte("VMware")):

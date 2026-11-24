@@ -1,7 +1,8 @@
 # openvddk-admin — recovery utility and diagnostic bundle
 
 `openvddk-admin` runs on a HotAdd worker, as root, and works with the
-journal the OpenVDDK library keeps there. It has no cleanup algorithm of
+journal the LibreVDDK library keeps there, records written by OpenVDDK
+included. It has no cleanup algorithm of
 its own: `reconcile` and `cleanup` run the library's own recovery code,
 the code behind the recovery the library runs at Open and in
 `VixDiskLib_Cleanup`. It is a static program and needs no other library.
@@ -56,7 +57,7 @@ touched.
 | `system.txt` | host name, CPUs, memory, uptime, boot ID, BIOS UUID (and its vSphere form), LVM protection of attached disks, C library, kernel, `/etc/os-release` |
 | `modules.txt` | loaded kernel modules |
 | `devices.txt` | SCSI hosts by driver, their vSphere bus numbers, every SCSI disk with address, disk ID, size, holders and mounts |
-| `library.txt` | each VixDiskLib library file: path, size, SHA-256, whether it is VMware's reference or OpenVDDK; running processes that have one loaded (and whether the file was replaced under them) |
+| `library.txt` | each VixDiskLib library file: path, size, SHA-256, whether it is VMware's reference, LibreVDDK or OpenVDDK; running processes that have one loaded (and whether the file was replaced under them) |
 | `config.txt` | the journal directory; the configuration file's keys and values, secret-looking keys redacted |
 | `journal.txt` | the journal directory listing and every record |
 | `vsphere.txt` | with `-server`: vCenter's version, the worker VM, its host and ESXi version, the attachments and the dry-run plan |

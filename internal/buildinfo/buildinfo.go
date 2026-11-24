@@ -1,4 +1,5 @@
 // Copyright 2026 Andrija Panic and the OpenVDDK contributors
+// Copyright 2026 Norvitex OU (AltaStor.com) (modifications)
 // SPDX-License-Identifier: Apache-2.0
 
 // Package buildinfo identifies the implementation separately from the
@@ -10,9 +11,10 @@ import (
 	"strings"
 )
 
-// Set at link time by the Makefile (-X).
+// Set at link time by the Makefile (-X): Version from the VERSION file, in the form YY.MM.DD.
+// A build outside the Makefile, such as go test, reports "dev".
 var (
-	Version = "0.0.0-dev"
+	Version = "dev"
 	Commit  = "unknown"
 )
 
@@ -21,14 +23,14 @@ const Compatibility = "VixDiskLib 8.0.3 ABI (reference VDDK 8.0.3 build 23950268
 
 // String is the one-line identity used in logs and diagnostics.
 func String() string {
-	return "OpenVDDK " + Version + " (" + Commit + "), independent implementation; " + Compatibility
+	return "LibreVDDK " + Version + " (" + Commit + "), independent implementation; " + Compatibility
 }
 
 // UserAgent is the client identification sent to vCenter and ESXi: the
 // library, its version and the compatibility claim, then the consumer's
 // program name (LOG-0001, gap G1). It names this library, never VMware's client.
 func UserAgent() string {
-	ua := "OpenVDDK/" + Version + " (VixDiskLib 8.0.3 compatible)"
+	ua := "LibreVDDK/" + Version + " (VixDiskLib 8.0.3 compatible)"
 	if p := program(); p != "" {
 		ua += " " + p
 	}

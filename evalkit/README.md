@@ -1,13 +1,14 @@
-# OpenVDDK runtime kit
+# LibreVDDK runtime kit
 
-OpenVDDK is an independent implementation of the VixDiskLib 8.0.3 interface:
-a drop-in replacement for `libvixDiskLib.so.8.0.3`, written from scratch
-using only public documentation and black-box testing, with no VMware code
-inside. An application that loads VMware's library can load this one
-instead, without recompiling.
+LibreVDDK is an independent implementation of the VixDiskLib 8.0.3 interface:
+a drop-in replacement for `libvixDiskLib.so.8.0.3`, written from scratch using only
+public documentation and black-box testing, with no VMware code inside. 
+LibreVDDK is a fork of OpenVDDK, which reads disks only; LibreVDDK also writes them
+once writes are switched on (see "Writing").
+An application that loads VMware's library can load this one instead, without recompiling.
 
-This kit is the runtime kit (named `openvddk-evalkit-…` until 0.7.4): the
-library, the administrative program, the headers, an example and this user
+This kit is the runtime kit, `librevddk-runtime-…` (OpenVDDK's `openvddk-runtime-…`, named `openvddk-evalkit-…`
+until 0.7.4): the library, the administrative program, the headers, an example and this user
 guide. It is shipped with `LICENSE` (the Apache License 2.0), `NOTICE` and
 `THIRD-PARTY-NOTICES`.
 
@@ -94,7 +95,7 @@ Check the kit before use: `sha256sum -c SHA256SUMS`.
 - Data is byte-identical to VMware's library in every test so far, over
   all three transports: whole disks up to 200 GiB, snapshot chains,
   several disks and threads at once, CBT delta passes.
-- Tested consumers: nbdkit's VDDK plugin (with nbdcopy and qemu-img),
+- **Tested consumers**: AltaStor Backup & Replication v26.11 (over NBDSSL and NBD), nbdkit's VDDK plugin (with nbdcopy and qemu-img),
   virt-v2v 2.7.1 in its VDDK input mode (over all three transports), and a
   migration application that copies up to 17 disks of one VM in parallel
   over HotAdd.
@@ -159,6 +160,7 @@ upgrade of the library.
   disk.
 - **Not written:** `WriteMetadata`, `Shrink` and `Defragment` fail with 6
   on a disk open for writing (11 on a read-only one).
+- **Tested consumers**: AltaStor Backup & Replication v26.11, restoring backups over NBDSSL and NBD.
 
 VMware's library writes without a switch, also at a snapshot and into a
 parent of a snapshot chain, which breaks the chain, and moves writes
@@ -184,7 +186,7 @@ Two ways, both without recompiling the application:
    the kit's directory as the library directory:
 
    ```text
-   nbdkit -r vddk libdir=/opt/openvddk-runtime ...
+   nbdkit -r vddk libdir=/opt/librevddk-runtime ...
    ```
 
    The plugin looks for `lib64/libvixDiskLib.so.8` under `libdir`; the
@@ -201,7 +203,7 @@ Two ways, both without recompiling the application:
    file a process actually loaded.
 
 The library announces itself in its first log line:
-`OpenVDDK: VixDiskLib: OpenVDDK <version> (<commit>) ...`.
+`LibreVDDK <version> (<commit>) ...`.
 
 ## Comparing with VMware's library
 
@@ -218,15 +220,15 @@ comparison:
    clear-text NBD when only NBDSSL was asked for and a second process read
    the same VM, or when an earlier run on the same machine had left its
    per-VM folder under `/tmp/vmware-root/` (moving that folder aside
-   brought the requested transport back). OpenVDDK uses only the
+   brought the requested transport back). LibreVDDK uses only the
    transports the application listed.
 3. Compare the data: a checksum of what was read, or `qemu-img compare` of
    the images written.
 4. Compare the time: the application's total, and the `Disk IO Speed` line
    both libraries print for each disk at Close.
-5. For an application that reads one block at a time, OpenVDDK reads
+5. For an application that reads one block at a time, LibreVDDK reads
    ahead. `OpenVDDK.hotadd.readAheadKB = "0"`
-   (`OpenVDDK.nbd.readAheadKB = "0"` for NBDSSL and NBD) makes OpenVDDK
+   (`OpenVDDK.nbd.readAheadKB = "0"` for NBDSSL and NBD) makes LibreVDDK
    read exactly as asked, for a like-for-like comparison of the transport
    alone.
 6. On storage that answers each read slowly, the size of each read call
@@ -235,9 +237,9 @@ comparison:
    than 1 MiB) raises the rate.
    Several threads reading the same handle help too. The application chooses
    the read size; with nbdkit it is the size of the client's requests.
-   OpenVDDK's read-ahead does the same for long sequential reads, but starts
+   LibreVDDK's read-ahead does the same for long sequential reads, but starts
    over after each gap in a list of extents. On a disk opened unbuffered,
-   OpenVDDK reads a call as one direct read when the buffer address, the
+   LibreVDDK reads a call as one direct read when the buffer address, the
    length and the offset are multiples of 4 KiB, and otherwise through a
    1 MiB buffer, one piece at a time.
 
@@ -365,7 +367,7 @@ For HotAdd the reader runs inside a VM in vSphere (the "worker" or
    lacks them only when its CPU model hides them: QEMU's `qemu64`, `kvm64`,
    models named after older generations such as `Nehalem`, VMware EVC
    baselines older than Westmere. Without them NBDSSL decrypts in software
-   and reads more slowly, and OpenVDDK logs a warning at `Open`. Give the
+   and reads more slowly, and LibreVDDK logs a warning at `Open`. Give the
    reader the host's CPU: libvirt's `host-passthrough` or `host-model` CPU
    mode, in OpenStack Nova `cpu_mode = host-model` or `host-passthrough`,
    in CloudStack the KVM agent's `guest.cpu.mode`. NBD does not need them.
@@ -419,9 +421,10 @@ For writes, not yet tested privilege by privilege:
 ## Configuration
 
 Settings go into the configuration file the application passes to
-`InitEx` (the last argument), one per line, as `key = "value"`. OpenVDDK's
-own keys are written with the `OpenVDDK.` prefix; the older `OpenVix.`
-prefix names the same keys and keeps working.
+`InitEx` (the last argument), one per line, as `key = "value"`. The
+library's own keys are written with the `OpenVDDK.` prefix, kept from
+OpenVDDK so that existing files keep working; the older `OpenVix.` prefix
+names the same keys and keeps working too.
 
 | Key | Default | What it does |
 |---|---|---|
@@ -456,9 +459,10 @@ down.
 
 ## Log messages
 
-- Every line starts with `OpenVDDK: VixDiskLib: `, followed, for an API
-  call, by the call's name as VMware's library logs it
-  (`VixDiskLib_ConnectEx:`, `VixDiskLib_OpenEx:`, `VixDiskLib_Close:` ...).
+- A line of an API call starts with the call's name as VMware's library
+  logs it (`VixDiskLib_ConnectEx:`, `VixDiskLib_OpenEx:`,
+  `VixDiskLib_Close:` ...); any other line starts with its text. No
+  library name comes first: the first log line names the build.
 - When a disk is closed the library prints the same six per-disk
   statistics lines as VMware's library (`Disk Open Time`, `Disk Close
   Time`, `Disk IO Time`, `Disk IO Size`, `Disk IO Count`, `Disk IO Speed`),

@@ -1,4 +1,5 @@
 // Copyright 2026 Andrija Panic and the OpenVDDK contributors
+// Copyright 2026 Norvitex OU (AltaStor.com) (modifications)
 // SPDX-License-Identifier: Apache-2.0
 
 package logx
@@ -31,7 +32,7 @@ func TestSink(t *testing.T) {
 	SetSink(func(l Level, m string) Delivery { got = append(got, m); return Delivered })
 	defer SetSink(nil)
 	Warnf("password=%s", "x1")
-	if len(got) != 1 || !strings.HasPrefix(got[0], Prefix) || strings.Contains(got[0], "x1") {
+	if len(got) != 1 || got[0] != "password=<redacted>\n" {
 		t.Fatalf("unexpected sink output %q", got)
 	}
 	SetSink(nil)
@@ -41,8 +42,8 @@ func TestSink(t *testing.T) {
 	}
 }
 
-// Every line names the implementation and the reference's component; lines
-// of an API call also name the function, as the reference's do (D-0021).
+// A line of an API call starts with the function's name, as the reference's do (D-0021); other lines start with the text.
+// No library or component name comes before either (D-A005).
 func TestLineFormat(t *testing.T) {
 	var got []string
 	SetSink(func(l Level, m string) Delivery { got = append(got, m); return Delivered })
@@ -51,9 +52,9 @@ func TestLineFormat(t *testing.T) {
 	Infof("Disk IO Count: %d", 7)
 	Open.Warnf("Cannot open disk %s. Error %d", "[ds] x.vmdk", 13)
 	want := []string{
-		"OpenVDDK: VixDiskLib: VixDiskLib_OpenEx: Open disk '[ds] vm/vm.vmdk'\n",
-		"OpenVDDK: VixDiskLib: Disk IO Count: 7\n",
-		"OpenVDDK: VixDiskLib: VixDiskLib_Open: Cannot open disk [ds] x.vmdk. Error 13\n",
+		"VixDiskLib_OpenEx: Open disk '[ds] vm/vm.vmdk'\n",
+		"Disk IO Count: 7\n",
+		"VixDiskLib_Open: Cannot open disk [ds] x.vmdk. Error 13\n",
 	}
 	if len(got) != len(want) {
 		t.Fatalf("got %q", got)
