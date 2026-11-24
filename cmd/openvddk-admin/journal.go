@@ -118,6 +118,7 @@ func writeRecord(w io.Writer, r hotadd.Record, status string) {
 		fmt.Fprintf(w, ", device key %d", r.DeviceKey)
 	}
 	fmt.Fprintln(w)
+	fmt.Fprintf(w, "  mode       %s\n", attachMode(r))
 	if r.LocalDevice != "" || r.LocalWWID != "" {
 		fmt.Fprintf(w, "  guest      %s %s (identified by %s)\n", dash(r.LocalDevice), dash(r.LocalWWID), idMode(r))
 	}
@@ -130,6 +131,19 @@ func writeRecord(w io.Writer, r hotadd.Record, status string) {
 	if r.CleanupAttempts > 0 || r.LastError != "" {
 		fmt.Fprintf(w, "  recovery   %d failed attempts; last error: %s\n", r.CleanupAttempts, dash(r.LastError))
 	}
+}
+
+// attachMode says how the record's disk was attached: its disk mode, and whether it was opened for writing
+// (D-A003). A record written before the mode was journaled is a read-only attachment.
+func attachMode(r hotadd.Record) string {
+	m := r.AttachMode()
+	if r.DiskMode == "" {
+		m += " (not journaled)"
+	}
+	if r.Writable {
+		return m + ", opened for writing"
+	}
+	return m + ", read-only"
 }
 
 func idMode(r hotadd.Record) string {

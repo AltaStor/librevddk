@@ -115,10 +115,14 @@ func TestWriteJournal(t *testing.T) {
 	gone.Release()
 	old, _ := j.Begin(hotadd.Record{State: hotadd.StateActive, PID: os.Getpid(), BootID: "boot-0"})
 	old.Release()
+	wr, _ := j.Begin(hotadd.Record{State: hotadd.StateActive, PID: 999998, BootID: "boot-1", SourcePath: "[ds] c/c.vmdk",
+		DiskMode: "independent_persistent", Writable: true})
+	wr.Release()
 	var out bytes.Buffer
 	writeJournal(&out, j, dir, "/proc", "boot-1")
 	s := out.String()
-	for _, want := range []string{"3 records", "owner alive (process", "orphan (process 999999 has ended)", "orphan (written before the worker last booted)", "[ds] a/a.vmdk"} {
+	for _, want := range []string{"4 records", "owner alive (process", "orphan (process 999999 has ended)", "orphan (written before the worker last booted)", "[ds] a/a.vmdk",
+		"mode       independent_persistent, opened for writing", "mode       independent_nonpersistent (not journaled), read-only"} {
 		if !strings.Contains(s, want) {
 			t.Fatalf("missing %q in:\n%s", want, s)
 		}
