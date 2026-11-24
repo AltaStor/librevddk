@@ -215,12 +215,11 @@ must carry the WWID: identification by position is never enough to write
 
 ## Reporting
 
-Report suspected vulnerabilities privately by e-mail to
-hello@openvddk.com, or through GitHub's private vulnerability reporting
-for this repository where it is enabled. Do not open public issues. Please
-include:
+Report suspected vulnerabilities privately through GitHub's private
+vulnerability reporting for the LibreVDDK repository,
+github.com/AltaStor/LibreVDDK. Do not open public issues. Please include:
 
-- the exact OpenVDDK build (the first line of the library's log);
+- the exact build (the first line of the library's log);
 - what you observed, and how to reproduce it;
 - the impact you expect.
 

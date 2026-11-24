@@ -10,7 +10,9 @@
   writes.
 - Reference for writes: VMware VDDK 9.1. Every write observation is made
   with it; VDDK 8.0.3 stays the reference for reads (D-0046). The package
-  and library hashes are in CONTRACT.md §49.
+  and library hashes are in CONTRACT.md §49. VDDK 9.1 was the only VDDK in
+  the development environment for writes, and the observations call only
+  functions and arguments that VDDK 8.0.3 also has.
 
 ## Context
 

@@ -508,10 +508,9 @@ in vCenter, or powering the worker off, frees it.
 
 ## Reporting a problem
 
-Report problems as issues in the OpenVDDK repository
-(github.com/openvddk/openvddk), or by e-mail to hello@openvddk.com.
-Suspected security problems are reported privately, as `SECURITY.md` in
-the repository describes.
+Report problems as issues in the LibreVDDK repository
+(github.com/AltaStor/LibreVDDK). Suspected security problems are reported
+privately, as `SECURITY.md` in the repository describes.
 
 The quickest way is a diagnostic bundle, written as root on the worker
 right after the problem (it holds no password, cookie or key; please look

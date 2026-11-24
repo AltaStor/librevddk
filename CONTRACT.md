@@ -1670,7 +1670,9 @@ from VMware's public download page under the same General Terms as the
 8.0.3 package (D-A001 point 5) and is used as 8.0.3 is: kept privately,
 test input only, examined only through its exported functions and by
 running it. Every write observation names it; reads stay compared with
-VDDK 8.0.3 (D-0046).
+VDDK 8.0.3 (D-0046). It was the only VDDK in the development environment
+for writes, and the observations call only functions and arguments that
+VDDK 8.0.3 also has.
 
 Reference libraries SHALL be treated as test input, never as build dependencies for the candidate implementation.
 
