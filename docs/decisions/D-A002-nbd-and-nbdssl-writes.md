@@ -110,7 +110,8 @@ NET-A002 then recorded how the host fails writes:
      piece header of NET-A001. Bigger pieces wait for an observation with
      larger AIO buffers.
    - **One at a time.** One write request is in flight per handle. Reads on
-     the handle wait for the write in flight. The host accepts several and
+     the handle, `ReadAsync` included, wait for the write in flight, and a
+     write waits for the read in flight. The host accepts several and
      completes them out of order (NET-A002, NW1). Several in flight would
      need replies matched by operation number and is left to a later change.
    - **Reply checks.** The reply must name the request's offset and length.

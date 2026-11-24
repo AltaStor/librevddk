@@ -23,10 +23,12 @@ type fakeWriter struct {
 	set      map[string]string
 	writes   [][2]uint64 // offset and length of every request
 	flushes  int
-	closed   []string // "file", "session"
-	failNext error    // the next write fails with this
-	failFl   error    // the next flush fails with this
-	err      error    // the session's error once it ended
+	closed   []string      // "file", "session"
+	failNext error         // the next write fails with this
+	failFl   error         // the next flush fails with this
+	err      error         // the session's error once it ended
+	entered  chan struct{} // closed when the first write starts, if set
+	hold     chan struct{} // the first write waits for it, if set
 }
 
 func (f *fakeWriter) DDBSet(_ uint64, key, value string) error {
@@ -41,6 +43,11 @@ func (f *fakeWriter) DDBSet(_ uint64, key, value string) error {
 }
 
 func (f *fakeWriter) Write(_ uint64, off uint64, data []byte) error {
+	if f.hold != nil {
+		close(f.entered)
+		<-f.hold
+		f.hold = nil
+	}
 	if f.err != nil {
 		return f.err
 	}
@@ -247,6 +254,42 @@ func TestNBDReadWhenHostEnds(t *testing.T) {
 	if notes != 1 {
 		t.Errorf("%d notes, want 1: %v", notes, *logged)
 	}
+}
+
+// A ReadAsync of a disk open for writing waits for the write in flight, then answers as Read does: here the write is
+// refused for lack of space and the host ends the session, so the read answers 1 (D-A002).
+func TestNBDReadAsyncWaitsForWrite(t *testing.T) {
+	hold := make(chan struct{})
+	f := &fakeWriter{failNext: noSpace, entered: make(chan struct{}), hold: hold}
+	h := writableNBD(t, f)
+	wrote := make(chan error, 1)
+	go func() { wrote <- write(h, 0, 8) }()
+	<-f.entered
+
+	buf := make([]byte, 512)
+	read := make(chan error, 1)
+	if !ReadAsync(h, 0, 1, unsafe.Pointer(&buf[0]), func(err error) { read <- err }) {
+		t.Fatal("ReadAsync returned not ok")
+	}
+	select {
+	case err := <-read:
+		t.Fatalf("ReadAsync finished with the write still in flight: %v", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	close(hold)
+	if err := <-wrote; vix.ToCode(err) != vix.EDiskFull {
+		t.Fatalf("Write: %v, want 8", err)
+	}
+	select {
+	case err := <-read:
+		if vix.ToCode(err) != vix.EFail {
+			t.Fatalf("ReadAsync after the refused write: %v, want 1", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("ReadAsync did not finish after the write")
+	}
+	Close(h)
 }
 
 // A content ID that cannot be set fails the write with nothing written.

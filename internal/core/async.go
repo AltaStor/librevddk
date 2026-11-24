@@ -1,4 +1,5 @@
 // Copyright 2026 Andrija Panic and the OpenVDDK contributors
+// Copyright 2026 Norvitex OU (AltaStor.com) (modifications)
 // SPDX-License-Identifier: Apache-2.0
 
 package core
@@ -49,15 +50,15 @@ func (f *inflight) wait() {
 }
 
 // ReadAsync starts VixDiskLib_ReadAsync on a disk whose transport reads
-// asynchronously (NBD, NBDSSL): the read is served through the read-ahead
-// when it runs, as Read is (D-0048), otherwise sent at once as NFC requests
-// in flight together, and done is called from a library goroutine when it
-// has finished, as the reference calls its callback from its own thread
-// over NBD (NBD-0001). ok is false for a transport that reads
-// synchronously (HotAdd), which the caller then reads in place
-// (HOTADD-0004). A read that ends at once (zero length, outside the disk,
-// no buffer) calls done before ReadAsync returns, on the caller's thread,
-// as the reference does over NBD and NBDSSL (NBD-0011).
+// asynchronously (NBD, NBDSSL): the read is served as Read serves it when
+// the read-ahead runs (D-0048) and on a disk open for writing (D-A002),
+// otherwise sent at once as NFC requests in flight together, and done is
+// called from a library goroutine when it has finished, as the reference
+// calls its callback from its own thread over NBD (NBD-0001). ok is false
+// for a transport that reads synchronously (HotAdd), which the caller then
+// reads in place (HOTADD-0004). A read that ends at once (zero length,
+// outside the disk, no buffer) calls done before ReadAsync returns, on the
+// caller's thread, as the reference does over NBD and NBDSSL (NBD-0011).
 func ReadAsync(h uint64, start, count uint64, buf unsafe.Pointer, done func(error)) (ok bool) {
 	d, found := disks.Get(h)
 	if !found {
@@ -87,11 +88,14 @@ func ReadAsync(h uint64, start, count uint64, buf unsafe.Pointer, done func(erro
 	d.async.add()
 	p := unsafe.Slice((*byte)(buf), count*512)
 	t := time.Now()
-	if d.nbd.ra != nil {
+	if d.nbd.ra != nil || d.nbd.w != nil {
 		// Served through the read-ahead, as Read is (D-0048): nbdkit's VDDK
 		// plugin under virt-v2v sends one ReadAsync at a time, so only blocks
-		// fetched ahead keep the host (and every session) busy. Close waits
-		// for this read (async.wait).
+		// fetched ahead keep the host (and every session) busy. On a disk
+		// open for writing it is served as Read is too: it waits for the
+		// write in flight, a write waits for it, and once the session has
+		// ended it answers as Read does (D-A002). Close waits for this read
+		// (async.wait).
 		go func() {
 			defer d.async.done()
 			d.finishAsync(start, count, t, d.nbd.read(p, int64(start*512)), done)
