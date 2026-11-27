@@ -1,4 +1,4 @@
-# Compatibility matrix — LibreVDDK 26.11.26
+# Compatibility matrix — LibreVDDK 26.11.27
 
 Where LibreVDDK has been tested, and with what. Reads were tested with
 OpenVDDK, whose read path LibreVDDK keeps unchanged (read requests put the
@@ -9,7 +9,7 @@ answers, in the records named (docs/observations/). Function-level ABI
 coverage is in `COMPATIBILITY.md`; the full test lists are
 `docs/HOTADD-QUALIFICATION.md` and `docs/NBD-QUALIFICATION.md`.
 
-Status: 2026-11-26, LibreVDDK 26.11.26, which adds writes (D-A001 to D-A004,
+Status: 2026-11-27, LibreVDDK 26.11.27, which adds writes (D-A001 to D-A004,
 "Writing" below) to OpenVDDK 0.7.5 (released 2026-11-22 from `main`).
 Changed in OpenVDDK 0.7.5 since 0.7.4: vSphere 9.1.1 (tested after 0.7.4 was released), encrypted VMs over NBD
 (0.7.5), and ESXi 7.0 GA, verified on 0.7.5 by the reporter of
@@ -106,19 +106,19 @@ and was not compared with VMware's library.
 Not tested yet: NFS v3 and NFS 4.1 datastores (the attach and power-on
 locks of HW1), vSAN, vSphere 6.7, 7.0 and 9.1, LibreVDDK with a device set
 offline or removed under a HotAdd writer, and the vCenter privileges
-writes need (`evalkit/README.md`, "vCenter privileges").
+writes need (`runtime/README.md`, "vCenter privileges").
 
 ## Requirements in short
 
 - HotAdd: the reader is a VM in the same vCenter, on a host that sees the
   source datastore, with a BIOS UUID of its own (or other transports listed
   after `hotadd`), free PVSCSI slots, and an LVM configuration that leaves
-  attached disks alone (`evalkit/README.md`).
+  attached disks alone (`runtime/README.md`).
 - NBDSSL and NBD: HTTPS to vCenter and TCP 902 to the source VM's ESXi host
   (or its vSphere Backup NFC address); any Linux machine. For NBDSSL speed
   the reader's CPU needs AES instructions; a reader VM should get the
   host's CPU features (NBD-0022, NBD-0023).
-- vCenter privileges: `evalkit/README.md`, "vCenter privileges".
+- vCenter privileges: `runtime/README.md`, "vCenter privileges".
 - Writes: a switch outside the program per transport family; for HotAdd
   also the worker's disk ID settings and its LVM restricted
-  (`evalkit/README.md`, "Writing").
+  (`runtime/README.md`, "Writing").

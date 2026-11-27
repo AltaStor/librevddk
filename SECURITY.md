@@ -2,7 +2,7 @@
 
 CONTRACT.md §21, §54–§58.
 
-## Current posture (LibreVDDK 26.11.26)
+## Current posture (LibreVDDK 26.11.27)
 
 The library connects to vCenter, or directly to an ESXi host; for HotAdd,
 through vCenter only, it attaches disks to the proxy and reads block

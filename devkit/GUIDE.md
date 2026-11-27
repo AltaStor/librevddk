@@ -98,7 +98,8 @@ K=/opt/librevddk
 ln -s libvixDiskLib.so.8.0.3 $K/lib/libvixDiskLib.so.7.0.3
 # a tool that loads the library by major version and knows only VDDK 7
 ln -s libvixDiskLib.so.8.0.3 $K/lib/libvixDiskLib.so.7
-# a tool that expects VDDK's directory layout (lib64/ under libdir=/opt/librevddk)
+# a tool that expects VDDK's directory layout (lib64/ under libdir=/opt/librevddk):
+# the kit carries this link; recreate it only in a copy that lost it
 ln -s lib $K/lib64
 # tell the program where the library is (or add $K/lib to /etc/ld.so.conf.d/ and run ldconfig)
 export LD_LIBRARY_PATH=$K/lib

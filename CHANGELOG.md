@@ -6,11 +6,13 @@ kept in the [VERSION](VERSION) file.
 OpenVDDK's history up to 0.7.5 is in its release notes, the last being
 [docs/RELEASE-NOTES-0.7.5.md](docs/RELEASE-NOTES-0.7.5.md).
 
-## v26.11.26
+## v26.11.27
 
 The first LibreVDDK version, based on OpenVDDK 0.7.5 (the tag `v0.7.5` and
-the two documentation commits after it). There are no release files yet;
-the kits are built from source (`make runtime`, `make devkit`).
+the two documentation commits after it). Its release carries the runtime
+kit (also as `librevddk-runtime.tar.gz`), the developer kit, the SBOM and
+`SHA256SUMS`; the kits can also be built from source (`make runtime`,
+`make devkit`).
 
 Anyone with OpenVDDK 0.7.5 can move to it with the same configuration file.
 Writes stay off until switched on, and until then an open without
@@ -111,6 +113,14 @@ full, including where VMware's library writes and LibreVDDK refuses.
 - The kits are `librevddk-runtime-<version>-<commit>.tar.gz` (also built as
   `librevddk-runtime.tar.gz`) and `librevddk-devkit-<version>-<commit>.tar.gz`;
   their BUILD.txt and the SBOM name LibreVDDK.
+- The runtime kit holds what a program needs to run with the library: the
+  library and its links, `lib64`, `openvddk-admin`, the user guide and the
+  licence files (D-A006). The headers and the `read-disk` example are now
+  only in the developer kit, which also gains the `lib64` link, so its
+  directory works as nbdkit's `libdir` too. The headers are unchanged.
+  In the source tree, the runtime kit's texts are in `runtime/` (was
+  `evalkit/`) and its script is `tools/runtime.sh`; `make evalkit` still
+  works.
 - The developer kit's pkg-config module is `librevddk`. The kit carries the
   same file as `openvddk.pc`, so `pkg-config openvddk` keeps working.
 - Log lines no longer start with `OpenVDDK: VixDiskLib: ` (D-A005). A
@@ -138,11 +148,11 @@ full, including where VMware's library writes and LibreVDDK refuses.
   document version, the date of the revision: 26.11.24 describes writes
   (§15, §37, §49, §126, the new §131), 26.11.25 the version and the names
   (§86, §127.1, §129), 26.11.25.1 the log lines without the prefix
-  (§86) and 26.11.25.2 the project's name in the title and the copyright
-  lines (§88, §129).
+  (§86), 26.11.25.2 the project's name in the title and the copyright
+  lines (§88, §129) and 26.11.27 the runtime kit's contents (§127, §129).
 - Decisions D-A001 to D-A004 and their observations record how writes were
   designed and what VMware's library was seen to do; D-A005 records the
-  log line format.
+  log line format and D-A006 the runtime kit without headers and example.
 - The compatibility matrix, the NBD qualification catalogue and the kit's
   README list AltaStor Backup & Replication v26.11 as a tested application:
   full and incremental backups and restores over NBDSSL and NBD (NBD-A003).

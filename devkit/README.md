@@ -19,10 +19,11 @@ written against this interface also runs with VMware's VDDK 8.0.3.
 | `GUIDE.md` | The developer guide: the interface, how LibreVDDK behaves, and how to write a program that runs with both libraries |
 | `include/vixDiskLib.h`, `include/openvix/vixdisklib_abi.h` | The headers |
 | `lib/libvixDiskLib.so.8.0.3` | The library, with the links `libvixDiskLib.so.8` and `libvixDiskLib.so` |
+| `lib64` | A link to `lib`, so the kit's directory works as nbdkit's `libdir`, as the runtime kit's does |
 | `lib/pkgconfig/librevddk.pc` | pkg-config file: `pkg-config --cflags --libs librevddk` |
 | `lib/pkgconfig/openvddk.pc` | the same file under OpenVDDK's module name, for build lines written for OpenVDDK |
 | `examples/` | Four example programs and their Makefile |
-| `OPERATIONS.md` | Running the library: requirements of each transport, vCenter privileges, configuration, log messages, recovery after a crash. It is the binary kit's README; everything in it applies here |
+| `OPERATIONS.md` | Running the library: requirements of each transport, vCenter privileges, configuration, log messages, recovery after a crash. It is the runtime kit's README; everything in it applies here |
 | `KNOWN-DIFFERENCES.md` | Every case found where LibreVDDK answers differently from VMware's library, and why |
 | `ADMIN.md`, `bin/openvddk-admin` | The command-line tool that shows and clears what a crashed program left on a worker |
 | `LICENSE` | The Apache License 2.0, under which this kit is provided |

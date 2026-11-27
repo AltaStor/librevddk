@@ -1,5 +1,6 @@
 /*
  * Copyright 2026 Andrija Panic and the OpenVDDK contributors
+ * Copyright 2026 Norvitex OU (AltaStor.com) (modifications)
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -7,9 +8,8 @@
  * read-disk: reads one virtual disk of a VM snapshot over HotAdd through
  * VixDiskLib and writes it to a file (or discards it), printing the rate.
  *
- * It is a minimal consumer for evaluating OpenVDDK, compiled against the
- * binary kit's header only. Run it as root on a worker VM inside vSphere
- * (see README.md).
+ * It is a minimal consumer, compiled against the developer kit's header only.
+ * Run it as root on a worker VM inside vSphere (see OPERATIONS.md).
  *
  *   read-disk --server VC --user USER --password-file FILE --thumbprint TP
  *             --vm MOREF --snapshot SNAPSHOT-MOREF --path "[ds] dir/disk.vmdk"

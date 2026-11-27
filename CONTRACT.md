@@ -2,7 +2,7 @@
 ## Normative Engineering Contract
 
 **Document version:** 0.43 (2026-11-22)  
-**LibreVDDK Document version:** 26.11.25.2  
+**LibreVDDK Document version:** 26.11.27  
 **Initial compatibility target:** VMware VDDK 8.0.3, build 23950268, Linux x86_64  
 **Reference package:** `VMware-vix-disklib-8.0.3-23950268.x86_64.tar.gz`  
 **Reference for writes:** VMware VDDK 9.1, `VMware-vix-disklib-9.1.0.0.25379531.x86_64.tar.gz` (§49, D-A001)  
@@ -211,6 +211,11 @@ on the same day is `YY.MM.DD.1`, a third `YY.MM.DD.2`, and so on.
 - LibreVDDK 26.11.25.2 — The project's name in the title and §129; the
   copyright lines source files carry, and a `NOTICE` that names LibreVDDK's
   copyright holder as well as OpenVDDK's (§88).
+- LibreVDDK 26.11.27 — The runtime kit holds what a program needs to run
+  with the library, without the headers and the example; the developer kit
+  carries `read-disk.c` and the runtime kit's `lib64` link; the runtime
+  kit's sources are in `runtime/` and `tools/runtime.sh` (§127.1, §127.2,
+  §127.4, §129, D-A006).
 
 ---
 
@@ -3485,6 +3490,7 @@ revision (§117).
 | D-A003 | 2026-11-12 | Writes over HotAdd: attached `independent_persistent`, known by the journal (`disk_mode`, `writable`), identified by disk ID only, the LVM check always enforced, 512-byte blocks, `pwrite` and `fdatasync`, Close flushes and still detaches, moves on only when HotAdd cannot run here (amends D-0014 for writes) | §37, §38, §57, §126 |
 | D-A004 | 2026-11-06 | Before a HotAdd write of a disk that can grow, the room it may need is compared with its datastore's free space (`OpenVDDK.hotadd.write.spaceCheck`: refuse, warn or off); a shortfall moves the open on to NBDSSL or NBD, or answers 8; `openvddk-admin journal` names a writer stuck in I/O | §37, §38, §126.13 |
 | D-A005 | 2026-11-25 | Log lines without the prefix `OpenVDDK: VixDiskLib: `: a line of an API call starts with the call's name, any other line with its text; the first log line names the implementation (amends D-0007, D-0021) | §86 |
+| D-A006 | 2026-11-27 | The runtime kit holds what a program needs to run with the library: the library and its links, `lib64`, `openvddk-admin`, the user guide and the licence files, without the headers and the example; its gate checks the SONAME, the exports and the links instead of building the example; the developer kit carries `read-disk.c` and the `lib64` link; the source folder `evalkit/` and the script `tools/evalkit.sh` are renamed `runtime/` and `tools/runtime.sh`, `make evalkit` stays as the old name (amends D-0041, D-0055) | §127, §129 |
 | D-0038 | 2026-10-10 | `include/vixDiskLib.h`, a source-compatibility header written by this project and generated from the library's error table: the ABI header plus every `VIX_E_*` code, `VIX_SUCCEEDED`/`VIX_FAILED`, the hardware-version enum and the basic type names | §10, §50 |
 | D-0037 | 2026-10-08 | NBDSSL/NBD development on `main` from 0.7.0; HotAdd acceptance, fixes and its release candidate on branch `release/hotadd` (from `008fd06`) | §118, §122, §128 |
 | D-0036 | 2026-10-08 | QueryAllocatedBlocks over HotAdd asks the host over NFC (vCenter ticket NfcGetVmFiles, the host's backup-NFC address when selected, authd TLS pinned to the ticket's thumbprint, one session per query); vCenter's map, then the whole range, as fallbacks | §35, §50, §98, §109, §122 |
@@ -3961,13 +3967,12 @@ D-0055). A kit is not a release; §84 governs releases.
 A kit is one archive, `librevddk-runtime-<version>-<commit>.tar.gz`
 (OpenVDDK's `openvddk-runtime-…`, named `openvddk-evalkit-…` until 0.7.4,
 D-0055), built also as `librevddk-runtime.tar.gz` with the same bytes. It
-SHALL contain:
+holds what a program needs to run with the library, and no headers or
+examples, which are in the developer kit (§129, D-A006). It SHALL contain:
 
 ```text
 lib/libvixDiskLib.so.8.0.3          the library (and the .so.8 / .so links)
 lib64                               a link to lib, the layout nbdkit's VDDK plugin expects (D-0055)
-include/openvix/vixdisklib_abi.h    the project's own declarations (D-0005)
-examples/                           source of one consumer and its build line
 bin/openvddk-admin                  the administrative program of §104/§105 (D-0029)
 ADMIN.md                            its manual
 README                              see 127.2
@@ -3999,7 +4004,9 @@ The README, in English, SHALL state:
   its default, and the write switches' environment variables (§15);
 - where log messages go and how they look (§14, §15);
 - recovery after a crash (Cleanup, the journal directory, `openvddk-admin`);
-- what to collect when reporting a problem (`openvddk-admin bundle`).
+- what to collect when reporting a problem (`openvddk-admin bundle`);
+- that the headers and examples for writing programs against the library
+  are in the developer kit (§129).
 
 ## 127.3 Exclusions
 
@@ -4013,8 +4020,10 @@ environment.
 `make runtime` (old name `make evalkit`) builds the kit in the pinned
 container from a committed tree. The tree SHALL have passed `make check` and
 `make repro`, and the kit's library SHALL be byte-identical to the
-reproducible build. The gate also compiles the example against the kit's
-header alone and checks that the archive contains nothing outside 127.1.
+reproducible build. The gate also checks that the library's SONAME is
+`libvixDiskLib.so.8.0.3`, that it exports every function the project's
+header declares, that the `.so`, `.so.8` and `lib64` links reach it, and
+that the archive contains nothing outside 127.1.
 
 ## 127.5 Distribution
 
@@ -4086,12 +4095,13 @@ Developers writing programs against LibreVDDK receive a developer kit
 (D-0041). Like the binary kit it is not a release (§84).
 
 - **Contents.** One archive, `librevddk-devkit-<version>-<commit>.tar.gz`
-  (OpenVDDK's `openvddk-devkit-…`): the library and its links,
+  (OpenVDDK's `openvddk-devkit-…`): the library and its links, `lib64`
+  (a link to `lib`, as in the runtime kit, D-A006),
   `lib/pkgconfig/librevddk.pc` (also as `openvddk.pc`, OpenVDDK's module
   name), the two headers,
-  `examples/` (the binary kit's `read-disk.c` and the examples under
+  `examples/` (`read-disk.c` and the other examples under
   `devkit/examples/`), `GUIDE.md`, `README.md`,
-  `OPERATIONS.md` (the binary kit's README), `KNOWN-DIFFERENCES.md`,
+  `OPERATIONS.md` (the runtime kit's README), `KNOWN-DIFFERENCES.md`,
   `ADMIN.md` and `bin/openvddk-admin`, `LICENSE`, `NOTICE`,
   `THIRD-PARTY-NOTICES`, `SBOM.spdx.json`,
   `BUILD.txt` and `SHA256SUMS`.

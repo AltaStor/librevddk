@@ -135,7 +135,7 @@ it. Performance figures are not published.
 
 When the reference behaves worse than the candidate in a way a user would
 notice, the record says so and the item is added to
-`evalkit/KNOWN-DIFFERENCES.md`, which ships with every kit.
+`runtime/KNOWN-DIFFERENCES.md`, which ships with every kit.
 
 Template:
 

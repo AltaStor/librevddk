@@ -16,7 +16,7 @@ nbdkit's VDDK plugin and virt-v2v, load it in place of VMware's library without 
 LibreVDDK reads disks at a snapshot or, on a powered-off VM, as they are.
 It also writes the current disk of a powered-off VM over HotAdd, NBDSSL and NBD, with no snapshot named.
 Writes are off by default and are switched on explicitly (CONTRACT.md §37; "Writing" in
-[evalkit/README.md](evalkit/README.md)); so far they have been tested on vSphere 8.0.3 only.
+[runtime/README.md](runtime/README.md)); so far they have been tested on vSphere 8.0.3 only.
 
 The library names itself LibreVDDK in its first log line and in the
 client identification it sends to vCenter and ESXi, and the kits are
@@ -37,15 +37,15 @@ D-A004 under [docs/decisions/](docs/decisions/).
 
 ## Status
 
-**LibreVDDK 26.11.26** is the first version of the project.
+**LibreVDDK 26.11.27** is the first version of the project.
 Its [CHANGELOG.md](CHANGELOG.md) lists LibreVDDK's changes since OpenVDDK 0.7.5.
 
-**LibreVDDK 26.11.26** is based on **OpenVDDK 0.7.5** (released 2026-11-22; release notes:
+**LibreVDDK 26.11.27** is based on **OpenVDDK 0.7.5** (released 2026-11-22; release notes:
 [docs/RELEASE-NOTES-0.7.5.md](docs/RELEASE-NOTES-0.7.5.md)) with LibreVDDK's
 writes over HotAdd, NBDSSL and NBD on top (D-A001 to D-A004).
 
 LibreVDDK's build version is the date of its source in the form YY.MM.DD,
-such as 26.11.26. The [VERSION](VERSION) file holds it, and the build
+such as 26.11.27. The [VERSION](VERSION) file holds it, and the build
 stamps it into the library and `openvddk-admin`: it is the `<version>` of
 the library's first log line, of the client identification sent to vCenter
 and ESXi, and of the kit archive names (CONTRACT.md §86).
@@ -70,10 +70,10 @@ problems" below).
   SONAME and symbol versions; the status of each function is in
   [COMPATIBILITY.md](COMPATIBILITY.md). Behaviour that differs from VMware's
   library on purpose is listed in
-  [evalkit/KNOWN-DIFFERENCES.md](evalkit/KNOWN-DIFFERENCES.md).
+  [runtime/KNOWN-DIFFERENCES.md](runtime/KNOWN-DIFFERENCES.md).
 
 How to install and run the library is described in the user guide,
-[evalkit/README.md](evalkit/README.md); the developer guide is
+[runtime/README.md](runtime/README.md); the developer guide is
 [devkit/GUIDE.md](devkit/GUIDE.md); the recovery and diagnostic program
 `openvddk-admin` is described in [docs/ADMIN.md](docs/ADMIN.md). For large
 disks over NBDSSL and NBD (several NFC sessions per disk, larger buffers, and
@@ -103,8 +103,9 @@ OPENVIX_NETWORK=1 tools/container/run.sh env GOPROXY=https://proxy.golang.org go
 ```
 
 The library lands in `build/lib/`: `libvixDiskLib.so.8.0.3` plus the
-`.so.8` and `.so` links. `make evalkit` and `make devkit` build the binary
-kit and the developer kit from a committed tree. [TESTING.md](TESTING.md)
+`.so.8` and `.so` links. `make runtime` and `make devkit` build the kits from a committed tree:
+the runtime kit holds what a program needs to run with the library (the library, `openvddk-admin` and
+the user guide); the developer kit adds the headers, examples, a pkg-config file and the developer guide. [TESTING.md](TESTING.md)
 lists every target.
 
 Differential runs against VMware's library need VMware's VDDK package,
@@ -131,7 +132,7 @@ OPENVIX_REF_DIR=/path/to/vmware-vix-disklib-distrib \
 | `tools/ovxtool/` | ELF facts, ABI gate, layout check, transcript diff, ledger, SBOM |
 | `tools/container/` | Pinned build container and runner |
 | `configs/` | Lab description schema (example only) |
-| `evalkit/`, `devkit/` | User guide, known differences, developer guide and examples shipped in the kits |
+| `runtime/`, `devkit/` | User guide, known differences, developer guide and examples shipped in the kits |
 | `docs/decisions/` | Decision records D-0001… |
 | `docs/observations/` | Observation records: how VMware's library behaves, and how this library compares |
 

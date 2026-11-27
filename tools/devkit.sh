@@ -3,10 +3,11 @@
 # Copyright 2026 Norvitex OU (AltaStor.com) (modifications)
 # SPDX-License-Identifier: Apache-2.0
 #
-# Assembles and checks the developer kit (CONTRACT.md §129, D-0041): the
-# binary kit's library, tool and texts, plus the developer guide, the
-# examples, a pkg-config file and the licence files. Called by `make devkit`
-# inside the pinned container, after `make check` and `make repro`.
+# Assembles and checks the developer kit (CONTRACT.md §129, D-0041, D-A006):
+# the runtime kit's library, links, tool and texts, plus the headers, the
+# developer guide, the examples, a pkg-config file and the licence files.
+# Called by `make devkit` inside the pinned container, after `make check` and
+# `make repro`.
 #
 #   tools/devkit.sh <out-dir> <version> <commit>
 set -euo pipefail
@@ -41,17 +42,18 @@ mkdir -p "$out/devkit" "$stage/lib/pkgconfig" "$stage/bin" "$stage/include/openv
 install -m 0755 "$lib_a" "$stage/lib/$soname"
 ln -s "$soname" "$stage/lib/libvixDiskLib.so.8"
 ln -s libvixDiskLib.so.8 "$stage/lib/libvixDiskLib.so"
+# The runtime kit's link for nbdkit's VDDK plugin, so this kit's directory works as libdir too (D-A006).
+ln -s lib "$stage/lib64"
 sed "s/@VERSION@/$version/" devkit/librevddk.pc.in > "$stage/lib/pkgconfig/librevddk.pc"
 # The same file under OpenVDDK's module name, so build lines written for OpenVDDK keep working.
 cp "$stage/lib/pkgconfig/librevddk.pc" "$stage/lib/pkgconfig/openvddk.pc"
 install -m 0644 include/openvix/vixdisklib_abi.h "$stage/include/openvix/"
 install -m 0644 include/vixDiskLib.h "$stage/include/"
-install -m 0644 evalkit/examples/read-disk.c "$stage/examples/"
-install -m 0644 devkit/examples/Makefile devkit/examples/common.h devkit/examples/disk-info.c \
-  devkit/examples/allocated-blocks.c devkit/examples/async-read.c "$stage/examples/"
+install -m 0644 devkit/examples/Makefile devkit/examples/common.h devkit/examples/read-disk.c \
+  devkit/examples/disk-info.c devkit/examples/allocated-blocks.c devkit/examples/async-read.c "$stage/examples/"
 install -m 0644 devkit/README.md devkit/GUIDE.md "$stage/"
-install -m 0644 evalkit/README.md "$stage/OPERATIONS.md"
-install -m 0644 evalkit/KNOWN-DIFFERENCES.md "$stage/"
+install -m 0644 runtime/README.md "$stage/OPERATIONS.md"
+install -m 0644 runtime/KNOWN-DIFFERENCES.md "$stage/"
 install -m 0644 docs/ADMIN.md "$stage/ADMIN.md"
 install -m 0755 "$admin" "$stage/bin/openvddk-admin"
 install -m 0644 LICENSE NOTICE THIRD-PARTY-NOTICES "$stage/"
@@ -80,7 +82,8 @@ expected=$(printf '%s\n' ADMIN.md BUILD.txt GUIDE.md KNOWN-DIFFERENCES.md LICENS
   OPERATIONS.md README.md SBOM.spdx.json THIRD-PARTY-NOTICES bin/openvddk-admin \
   examples/Makefile examples/allocated-blocks.c examples/async-read.c examples/common.h \
   examples/disk-info.c examples/read-disk.c include/openvix/vixdisklib_abi.h include/vixDiskLib.h \
-  lib/libvixDiskLib.so lib/libvixDiskLib.so.8 "lib/$soname" lib/pkgconfig/librevddk.pc lib/pkgconfig/openvddk.pc | sort)
+  lib/libvixDiskLib.so lib/libvixDiskLib.so.8 "lib/$soname" lib/pkgconfig/librevddk.pc lib/pkgconfig/openvddk.pc \
+  lib64 | sort)
 actual=$(cd "$stage" && find . \( -type f -o -type l \) | sed 's|^\./||' | sort)
 [ "$expected" = "$actual" ] || { diff <(echo "$expected") <(echo "$actual") >&2 || true; die "unexpected kit contents"; }
 

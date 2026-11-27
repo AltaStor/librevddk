@@ -8,9 +8,11 @@ once writes are switched on (see "Writing").
 An application that loads VMware's library can load this one instead, without recompiling.
 
 This kit is the runtime kit, `librevddk-runtime-…` (OpenVDDK's `openvddk-runtime-…`, named `openvddk-evalkit-…`
-until 0.7.4): the library, the administrative program, the headers, an example and this user
-guide. It is shipped with `LICENSE` (the Apache License 2.0), `NOTICE` and
+until 0.7.4): what a program needs to run with the library, namely the library, the administrative
+program and this user guide. It is shipped with `LICENSE` (the Apache License 2.0), `NOTICE` and
 `THIRD-PARTY-NOTICES`.
+The headers, example programs, a pkg-config file and the developer guide for writing programs against
+the library are in the developer kit, `librevddk-devkit-…`.
 
 ## What is in the kit
 
@@ -18,9 +20,6 @@ guide. It is shipped with `LICENSE` (the Apache License 2.0), `NOTICE` and
 |---|---|
 | `lib/libvixDiskLib.so.8.0.3` | the library, with the `libvixDiskLib.so.8` and `libvixDiskLib.so` links |
 | `lib64` | a link to `lib`, so the kit's directory works as nbdkit's `libdir` |
-| `include/openvix/vixdisklib_abi.h` | our own declarations of the VixDiskLib C interface, for programs that compile against it |
-| `include/vixDiskLib.h` | for existing programs written against VixDiskLib: `#include "vixDiskLib.h"` with `-I<kit>/include` gives them the declarations above plus the `VIX_E_*` error codes, `VIX_SUCCEEDED`/`VIX_FAILED`, the hardware-version constants and the basic type names (`Bool`, `uint32`, …). Define `OPENVIX_NO_BASIC_TYPES` if another header already provides those type names |
-| `examples/` | `read-disk.c`, a small consumer that reads one disk over HotAdd, and a Makefile |
 | `bin/openvddk-admin` | the administrative program: shows the library's journal and the disks attached to the worker, recovers leftovers, writes a diagnostic bundle (see `ADMIN.md`) |
 | `ADMIN.md` | its manual |
 | `KNOWN-DIFFERENCES.md` | where the library behaves differently from VMware's, and why |

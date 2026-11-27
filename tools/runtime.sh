@@ -3,20 +3,21 @@
 # Copyright 2026 Norvitex OU (AltaStor.com) (modifications)
 # SPDX-License-Identifier: Apache-2.0
 #
-# Assembles and checks the runtime kit (CONTRACT.md §127, D-0055): the
-# library, the administrative program, the headers, the example, the user
-# guide and the licence files. The archive is librevddk-runtime-...; OpenVDDK
-# names it openvddk-runtime-..., and named it openvddk-evalkit-... until 0.7.4.
+# Assembles and checks the runtime kit (CONTRACT.md §127, D-0055, D-A006): what
+# a program needs to run with the library, namely the library, the administrative
+# program, the user guide and the licence files. Headers and examples are in the
+# developer kit. The archive is librevddk-runtime-...; OpenVDDK names it
+# openvddk-runtime-..., and named it openvddk-evalkit-... until 0.7.4.
 # Called by `make runtime` (or its old name `make evalkit`) inside the pinned
 # container, after `make check` and `make repro`.
 #
-#   tools/evalkit.sh <out-dir> <version> <commit>
+#   tools/runtime.sh <out-dir> <version> <commit>
 set -euo pipefail
 
 out=$1 version=$2 commit=$3
 soname=libvixDiskLib.so.8.0.3
 
-die() { echo "evalkit: $*" >&2; exit 1; }
+die() { echo "runtime: $*" >&2; exit 1; }
 
 case $commit in
   uncommitted|*-dirty) die "the tree is not committed ($commit); a kit is built from a committed tree only" ;;
@@ -36,7 +37,7 @@ work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 stage=$work/$name
 rm -rf "$out/runtime"
-mkdir -p "$out/runtime" "$stage/lib" "$stage/bin" "$stage/include/openvix" "$stage/examples"
+mkdir -p "$out/runtime" "$stage/lib" "$stage/bin"
 admin=$out/bin/openvddk-admin
 [ -x "$admin" ] || die "run make admin first"
 
@@ -46,10 +47,7 @@ ln -s libvixDiskLib.so.8 "$stage/lib/libvixDiskLib.so"
 # nbdkit's VDDK plugin (and so virt-v2v) looks for lib64/ under its libdir;
 # with this link the kit's own directory works as libdir (D-0055).
 ln -s lib "$stage/lib64"
-install -m 0644 include/openvix/vixdisklib_abi.h "$stage/include/openvix/"
-install -m 0644 include/vixDiskLib.h "$stage/include/"
-install -m 0644 evalkit/examples/read-disk.c evalkit/examples/Makefile "$stage/examples/"
-install -m 0644 evalkit/README.md evalkit/KNOWN-DIFFERENCES.md "$stage/"
+install -m 0644 runtime/README.md runtime/KNOWN-DIFFERENCES.md "$stage/"
 install -m 0755 "$admin" "$stage/bin/openvddk-admin"
 install -m 0644 docs/ADMIN.md "$stage/ADMIN.md"
 install -m 0644 LICENSE NOTICE THIRD-PARTY-NOTICES "$stage/"
@@ -77,17 +75,21 @@ chmod 0644 "$stage/SBOM.spdx.json"
 # Gate 1: nothing outside the list of §127.1.
 expected=$(printf '%s\n' ADMIN.md BUILD.txt KNOWN-DIFFERENCES.md LICENSE NOTICE README.md SBOM.spdx.json \
   THIRD-PARTY-NOTICES bin/openvddk-admin \
-  examples/Makefile examples/read-disk.c include/openvix/vixdisklib_abi.h include/vixDiskLib.h \
   lib/libvixDiskLib.so lib/libvixDiskLib.so.8 "lib/$soname" lib64 | sort)
 actual=$(cd "$stage" && find . \( -type f -o -type l \) | sed 's|^\./||' | sort)
 [ "$expected" = "$actual" ] || { diff <(echo "$expected") <(echo "$actual") >&2 || true; die "unexpected kit contents"; }
 
-# Gate 2: the example builds against the kit alone.
-tmp=$(mktemp -d)
-cp -a "$stage" "$tmp/kit"
-make -s -C "$tmp/kit/examples" KIT=.. CFLAGS="-std=gnu11 -O2 -Wall -Wextra -Werror" >/dev/null \
-  || die "the example does not build against the kit's header and library"
-rm -rf "$tmp"
+# Gate 2: the library carries the name programs ask for, every function the project's header declares is
+# exported, and the links a loader follows reach the library.
+sonamed=$(readelf -d "$stage/lib/$soname" | sed -n 's/.*(SONAME).*\[\(.*\)\].*/\1/p')
+[ "$sonamed" = "$soname" ] || die "the library's SONAME is '$sonamed', not $soname"
+declared=$(grep -oE '\bVixDiskLib_[A-Za-z_]+\s*\(' include/openvix/vixdisklib_abi.h | sed 's/[ (]//g' | sort -u)
+exported=$(nm -D --defined-only "$stage/lib/$soname" | awk '{print $3}' | sed 's/@.*//' | sort -u)
+missing=$(comm -23 <(echo "$declared") <(echo "$exported"))
+[ -z "$missing" ] || die "declared but not exported: $missing"
+for link in lib/libvixDiskLib.so lib/libvixDiskLib.so.8 lib64/libvixDiskLib.so.8; do
+  [ "$(realpath -e "$stage/$link" 2>/dev/null)" = "$(realpath "$stage/lib/$soname")" ] || die "$link does not reach the library"
+done
 
 # Gate 3: no private names, addresses or paths (§127.3). A maintainer may
 # list further patterns, one extended regular expression per line, in
@@ -108,7 +110,7 @@ done
 
 # Checksums, then a reproducible archive.
 (cd "$stage" && find . -type f ! -name SHA256SUMS | sed 's|^\./||' | sort | xargs sha256sum > SHA256SUMS)
-chmod 0755 "$stage" "$stage/lib" "$stage/bin" "$stage/include" "$stage/include/openvix" "$stage/examples"
+chmod 0755 "$stage" "$stage/lib" "$stage/bin"
 chmod 0644 "$stage/SHA256SUMS" "$stage/BUILD.txt"
 tar --sort=name --owner=0 --group=0 --numeric-owner --mtime="@$epoch" \
   -C "$work" -cf - "$name" | gzip -n > "$out/runtime/$name.tar.gz"

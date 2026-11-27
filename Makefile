@@ -18,11 +18,11 @@
 #   make sbom          build/sbom.spdx.json: SPDX 2.3 SBOM of the library and
 #                      openvddk-admin (fails on a module without a reviewed license)
 #   make runtime
-#                      runtime kit: library, admin program, headers, example, guide (§127);
+#                      runtime kit: library, admin program, user guide (§127);
 #                      make evalkit is its old name
 #   make devkit
-#                      developer kit: the runtime kit plus guide, examples and
-#                      pkg-config file (CONTRACT.md §129)
+#                      developer kit: the runtime kit plus headers, guide, examples
+#                      and pkg-config file (CONTRACT.md §129)
 
 SHELL       := /bin/bash
 .SHELLFLAGS := -euo pipefail -c
@@ -311,7 +311,7 @@ repro:
 
 
 runtime: check repro env-report admin
-	tools/evalkit.sh $(OUT) $(VERSION) $(COMMIT)
+	tools/runtime.sh $(OUT) $(VERSION) $(COMMIT)
 
 evalkit: runtime
 
