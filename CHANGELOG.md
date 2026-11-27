@@ -136,7 +136,12 @@ full, including where VMware's library writes and LibreVDDK refuses.
 
 ### Security and testing
 
-- The write path has not had a security review yet (SECURITY.md).
+- The write path was reviewed (docs/SECURITY-REVIEW-26.11.27.md): no high
+  or medium finding; two low ones, each with a fix proposed for the next
+  version and its limit stated in SECURITY.md. A multi-writer disk that a
+  running VM also uses is left to ESXi's file locks to refuse, and a host
+  that sends an error frame just inside every reply timeout can hold one
+  write for up to 1024 timeouts.
 - New fuzz targets for what a host sends to a session open for writing:
   `FuzzParseErrorReply`, `FuzzParseWriteReply` and `FuzzEngineWrite`.
 - Problem and security reports go to the issue tracker of

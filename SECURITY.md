@@ -9,10 +9,9 @@ through vCenter only, it attaches disks to the proxy and reads block
 devices; for NBDSSL and NBD it reads from the ESXi host's NFC service. When
 writes are switched on (CONTRACT.md §37), it also writes the current disk
 of a powered-off VM over those transports. The last review is
-docs/SECURITY-REVIEW-0.7.4.md, of the changes since
-docs/SECURITY-REVIEW-0.7.0.md; the write path (D-A001 to D-A004) has not
-been reviewed yet, and is reviewed before the first release with it. The
-following is enforced:
+docs/SECURITY-REVIEW-26.11.27.md, of the write path (D-A001 to D-A004);
+before it, docs/SECURITY-REVIEW-0.7.4.md reviewed the changes since
+docs/SECURITY-REVIEW-0.7.0.md. The following is enforced:
 
 - **TLS:** the server's thumbprint (vCenter's, or the ESXi host's on a
   direct connection) is pinned (SHA-1 or SHA-256) whenever it is given,
@@ -59,12 +58,18 @@ following is enforced:
   `OPENVIX_NBD_WRITE=1` in the environment (D-A001). A program that opens
   disks writable by default (nbdkit without `-r`) therefore stays
   read-only after a library upgrade. `Init` logs which switches are on.
+  The switch is a safety interlock, not an access control: a program
+  chooses the file it passes to `InitEx` and its environment. Who may write
+  a disk is decided by the vCenter account's privileges.
 - **What may be written.** Only the current top file of a powered-off VM's
   dependent disk, with no snapshot named; never a snapshot point, a file
   lower in the chain, a running VM, an independent disk, a raw device
   mapping or an encrypted disk. Open checks this before any transport is
   tried. VMware's library writes into a parent of a snapshot chain when
-  asked and breaks the chain (HOTADD-A001); LibreVDDK refuses.
+  asked and breaks the chain (HOTADD-A001); LibreVDDK refuses. The disk's
+  sharing mode is not checked: a dependent multi-writer disk that another,
+  running VM also uses is left to ESXi's file locks to refuse
+  (SECURITY-REVIEW-26.11.27, finding 1).
 - **Writes over HotAdd** (D-A003): the disk is attached
   `independent_persistent`, so no snapshot of the worker captures the
   writes; the attachment is known by its journal record. It is accepted only
@@ -95,7 +100,10 @@ following is enforced:
   exactly once, never while its data is still being copied into the
   caller's buffer. The host's error frames for a write are bounded in
   number per request and in text length, and the reply to a write must
-  name the request's offset and length.
+  name the request's offset and length. Each error frame restarts the wait
+  for the reply, so a host that sends one just inside every timeout can
+  hold one write for up to 1024 reply timeouts (SECURITY-REVIEW-26.11.27,
+  finding 2).
 - **Several NFC sessions per disk:** with `OpenVDDK.nbd.sessions` above 1,
   each session has its own ticket and pin. Close ends the sessions one
   after the other, so with a host that stopped answering it can take one
@@ -126,9 +134,10 @@ following is enforced:
 
 ## Threat model
 
-Covered by the review of 0.7.0 (docs/SECURITY-REVIEW-0.7.0.md) and the
-review of the changes up to 0.7.4 (docs/SECURITY-REVIEW-0.7.4.md), with
-the findings and what was done about each:
+Covered by the review of 0.7.0 (docs/SECURITY-REVIEW-0.7.0.md), the
+review of the changes up to 0.7.4 (docs/SECURITY-REVIEW-0.7.4.md) and the
+review of the write path in 26.11.27 (docs/SECURITY-REVIEW-26.11.27.md),
+with the findings and what was done about each:
 
 - malicious or compromised vCenter and ESXi; malformed NFC traffic;
 - man in the middle, through pinned TLS and no silent downgrade;
@@ -140,12 +149,17 @@ the findings and what was done about each:
 - direct connections to an ESXi host (0.7.4), and the NFC read modes and
   settings added in 0.7.2 and 0.7.3 (zero-skipped reads, the shorter
   cipher offer, sessions per disk, timeouts, log levels).
+- the write path (D-A001 to D-A004, 26.11.27): the switches and the write
+  scope, the write ticket and the NFC write messages, the writable HotAdd
+  attachment, its device and its recovery, the free-space check, and what
+  the worker may activate in data written to a disk. What a host sends to a
+  session open for writing is fuzzed: the ERROR frames, the write and flush
+  replies, and the session that receives them.
 
-Not reviewed yet: the write path (D-A001 to D-A004): the switches, the
-write ticket and the NFC write messages, the writable HotAdd attachment and
-its device, and what the worker may activate in data written to a disk.
-What a host sends to a session open for writing is fuzzed: the ERROR frames,
-the write and flush replies, and the session that receives them.
+Not covered by the review of the write path: what ESXi does with a
+multi-writer disk that a running VM also uses (finding 1), the minimal
+vCenter privileges for writes, and writes on vSphere other than 8.0.3 or
+on datastores other than VMFS.
 
 ## HotAdd: guest content on the proxy (HOTADD-0001, CONTRACT.md §126.8)
 
